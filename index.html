@@ -16,6 +16,8 @@
     table.dataTable thead th, table.dataTable tfoot th { white-space: nowrap; }
     tfoot th { padding: 8px 10px; }
     tfoot input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin: 0 0 12px 0; flex-wrap: wrap; }
+    .toolbar label { font-size: 14px; color: #333; display: inline-flex; gap: 8px; align-items: center; }
   </style>
 </head>
 
@@ -23,7 +25,15 @@
   <h1>Таблица из Google Sheets</h1>
   <p class="hint">
     Поиск — вверху справа. Сортировка — клик по заголовку. Фильтр по столбцу — поля внизу.
+    По умолчанию показаны только строки, где «Активна?» = TRUE (столбец скрыт).
   </p>
+
+  <div class="toolbar">
+    <label>
+      <input type="checkbox" id="showInactive">
+      Показывать неактивные (FALSE)
+    </label>
+  </div>
 
   <table id="tbl" class="display nowrap" style="width:100%">
     <thead><tr id="thead-row"></tr></thead>
@@ -38,7 +48,11 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
+    // Ваш CSV
     const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
+
+    // 4-й столбец -> индекс 3
+    const ACTIVE_COL_INDEX = 3; // "Активна?"
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -63,24 +77,37 @@
       tfoot.innerHTML = "";
 
       headers.forEach((h, idx) => {
+        const title = h || ("Колонка " + (idx + 1));
+
+        // THEAD
         const th1 = document.createElement("th");
-        th1.textContent = h || ("Колонка " + (idx + 1));
+        th1.textContent = title;
         thead.appendChild(th1);
 
+        // TFOOT: фильтры по столбцам (кроме скрытого)
         const th2 = document.createElement("th");
-        // input for column filter
-        th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${idx+1}">`;
+        if (idx !== ACTIVE_COL_INDEX) {
+          th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${title}">`;
+        } else {
+          th2.innerHTML = ""; // скрытый столбец — без фильтра
+        }
         tfoot.appendChild(th2);
       });
     }
 
     function toDataTablesData(parsed) {
-      // parsed.data is array of objects if header:true, but we want arrays for DataTables
       const headers = parsed.meta.fields ?? [];
       const rows = parsed.data
-        .filter(r => Object.values(r).some(v => (v ?? "").toString().trim() !== "")) // drop empty lines
+        .filter(r => Object.values(r).some(v => (v ?? "").toString().trim() !== "")) // убрать пустые строки
         .map(obj => headers.map(h => obj[h] ?? ""));
       return { headers, rows };
+    }
+
+    function normalizeBool(v) {
+      // приводим к "TRUE"/"FALSE" чтобы фильтр был надежным даже если в данных разный регистр/пробелы
+      const s = String(v ?? "").trim().toUpperCase();
+      if (s === "TRUE" || s === "FALSE") return s;
+      return s; // оставляем как есть на всякий случай
     }
 
     async function init() {
@@ -98,8 +125,14 @@
       const { headers, rows } = toDataTablesData(parsed);
 
       if (!headers.length) {
-        throw new Error("Не удалось определить заголовки CSV. Убедитесь, что первая строка — это заголовки столбцов.");
+        throw new Error("Не удалось определить заголовки CSV. Убедитесь, что первая строка — заголовки столбцов.");
       }
+      if (headers.length <= ACTIVE_COL_INDEX) {
+        throw new Error("В CSV меньше 4-х столбцов. Проверьте структуру таблицы и индекс ACTIVE_COL_INDEX.");
+      }
+
+      // Нормализуем значения в "Активна?" для надежного фильтра
+      rows.forEach(r => { r[ACTIVE_COL_INDEX] = normalizeBool(r[ACTIVE_COL_INDEX]); });
 
       buildHeaderAndFooter(headers);
 
@@ -109,8 +142,17 @@
         responsive: true,
         pageLength: 25,
         lengthMenu: [10, 25, 50, 100],
-        order: [],           // no initial ordering
+        order: [],
         deferRender: true,
+
+        columnDefs: [
+          {
+            targets: ACTIVE_COL_INDEX,
+            visible: false,   // скрываем "Активна?"
+            searchable: true  // но оставляем возможность фильтровать программно
+          }
+        ],
+
         language: {
           search: "Поиск:",
           lengthMenu: "Показывать _MENU_ строк",
@@ -121,8 +163,12 @@
         }
       });
 
-      // Column filters (tfoot inputs)
-      table.columns().every(function () {
+      // Фильтр по умолчанию: показываем только TRUE
+      table.column(ACTIVE_COL_INDEX).search("^TRUE$", true, false).draw();
+
+      // Колоночные фильтры (tfoot inputs) — пропускаем скрытый столбец
+      table.columns().every(function (idx) {
+        if (idx === ACTIVE_COL_INDEX) return;
         const that = this;
         $("input", this.footer()).on("keyup change clear", function () {
           if (that.search() !== this.value) {
@@ -130,10 +176,23 @@
           }
         });
       });
+
+      // Чекбокс "показывать неактивные"
+      const chk = document.getElementById("showInactive");
+      chk.addEventListener("change", () => {
+        if (chk.checked) {
+          // показать все (TRUE и FALSE)
+          table.column(ACTIVE_COL_INDEX).search("", false, false).draw();
+        } else {
+          // только TRUE
+          table.column(ACTIVE_COL_INDEX).search("^TRUE$", true, false).draw();
+        }
+      });
     }
 
     init().catch(err => {
-      document.body.insertAdjacentHTML("beforeend",
+      document.body.insertAdjacentHTML(
+        "beforeend",
         `<p style="color:#b00020"><b>Ошибка:</b> ${escapeHtml(err.message)}</p>`
       );
       console.error(err);
