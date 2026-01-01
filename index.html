@@ -162,18 +162,6 @@
           }
         });
       });
-
-      // чекбокс "показывать неактивные"
-      document.getElementById("showInactive")
-        .addEventListener("change", e => {
-          if (e.target.checked) {
-            table.column(ACTIVE_COL_INDEX).search("").draw();
-          } else {
-            table.column(ACTIVE_COL_INDEX)
-              .search("^TRUE$", true, false)
-              .draw();
-          }
-        });
     }
 
     init().catch(err => {
