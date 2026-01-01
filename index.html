@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Таблица</title>
+
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 12px 0; font-size: 20px; }
+    .hint { margin: 0 0 18px 0; color: #555; font-size: 14px; }
+    table.dataTable thead th, table.dataTable tfoot th { white-space: nowrap; }
+    tfoot th { padding: 8px 10px; }
+    tfoot input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+  </style>
+</head>
+
+<body>
+  <h1>Таблица из Google Sheets</h1>
+  <p class="hint">
+    Поиск — вверху справа. Сортировка — клик по заголовку. Фильтр по столбцу — поля внизу.
+  </p>
+
+  <table id="tbl" class="display nowrap" style="width:100%">
+    <thead><tr id="thead-row"></tr></thead>
+    <tfoot><tr id="tfoot-row"></tr></tfoot>
+    <tbody></tbody>
+  </table>
+
+  <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function loadCsv() {
+      const res = await fetch(CSV_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Не удалось загрузить CSV: " + res.status);
+      return await res.text();
+    }
+
+    function buildHeaderAndFooter(headers) {
+      const thead = document.getElementById("thead-row");
+      const tfoot = document.getElementById("tfoot-row");
+
+      thead.innerHTML = "";
+      tfoot.innerHTML = "";
+
+      headers.forEach((h, idx) => {
+        const th1 = document.createElement("th");
+        th1.textContent = h || ("Колонка " + (idx + 1));
+        thead.appendChild(th1);
+
+        const th2 = document.createElement("th");
+        // input for column filter
+        th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${idx+1}">`;
+        tfoot.appendChild(th2);
+      });
+    }
+
+    function toDataTablesData(parsed) {
+      // parsed.data is array of objects if header:true, but we want arrays for DataTables
+      const headers = parsed.meta.fields ?? [];
+      const rows = parsed.data
+        .filter(r => Object.values(r).some(v => (v ?? "").toString().trim() !== "")) // drop empty lines
+        .map(obj => headers.map(h => obj[h] ?? ""));
+      return { headers, rows };
+    }
+
+    async function init() {
+      const csvText = await loadCsv();
+
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true
+      });
+
+      if (parsed.errors?.length) {
+        console.warn("PapaParse errors:", parsed.errors);
+      }
+
+      const { headers, rows } = toDataTablesData(parsed);
+
+      if (!headers.length) {
+        throw new Error("Не удалось определить заголовки CSV. Убедитесь, что первая строка — это заголовки столбцов.");
+      }
+
+      buildHeaderAndFooter(headers);
+
+      const table = $("#tbl").DataTable({
+        data: rows.map(r => r.map(escapeHtml)),
+        columns: headers.map(h => ({ title: h })),
+        responsive: true,
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100],
+        order: [],           // no initial ordering
+        deferRender: true,
+        language: {
+          search: "Поиск:",
+          lengthMenu: "Показывать _MENU_ строк",
+          info: "Показано _START_–_END_ из _TOTAL_",
+          infoEmpty: "Нет данных",
+          zeroRecords: "Ничего не найдено",
+          paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
+        }
+      });
+
+      // Column filters (tfoot inputs)
+      table.columns().every(function () {
+        const that = this;
+        $("input", this.footer()).on("keyup change clear", function () {
+          if (that.search() !== this.value) {
+            that.search(this.value).draw();
+          }
+        });
+      });
+    }
+
+    init().catch(err => {
+      document.body.insertAdjacentHTML("beforeend",
+        `<p style="color:#b00020"><b>Ошибка:</b> ${escapeHtml(err.message)}</p>`
+      );
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
