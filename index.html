@@ -16,16 +16,16 @@
     table.dataTable thead th, table.dataTable tfoot th { white-space: nowrap; }
     tfoot th { padding: 8px 10px; }
     tfoot input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
-    .toolbar { display: flex; gap: 12px; align-items: center; margin: 0 0 12px 0; flex-wrap: wrap; }
-    .toolbar label { font-size: 14px; color: #333; display: inline-flex; gap: 8px; align-items: center; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin: 0 0 12px 0; }
+    .toolbar label { font-size: 14px; display: inline-flex; gap: 8px; align-items: center; }
   </style>
 </head>
 
 <body>
   <h1>Таблица из Google Sheets</h1>
   <p class="hint">
-    Поиск — вверху справа. Сортировка — клик по заголовку. Фильтр по столбцу — поля внизу.
-    По умолчанию показаны только строки, где «Активна?» = TRUE (столбец скрыт).
+    По умолчанию показаны только строки с «Активна?» = TRUE.
+    Столбцы «ID» и «Активна?» скрыты.
   </p>
 
   <div class="toolbar">
@@ -48,11 +48,12 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // Ваш CSV
-    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
+    const CSV_URL =
+      "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
 
-    // 4-й столбец -> индекс 3
-    const ACTIVE_COL_INDEX = 3; // "Активна?"
+    // индексы столбцов (0-based)
+    const ID_COL_INDEX = 0;       // ID (внутренний)
+    const ACTIVE_COL_INDEX = 3;   // "Активна?"
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -65,14 +66,18 @@
 
     async function loadCsv() {
       const res = await fetch(CSV_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error("Не удалось загрузить CSV: " + res.status);
+      if (!res.ok) throw new Error("Не удалось загрузить CSV");
       return await res.text();
+    }
+
+    function normalizeBool(v) {
+      const s = String(v ?? "").trim().toUpperCase();
+      return s === "TRUE" || s === "FALSE" ? s : s;
     }
 
     function buildHeaderAndFooter(headers) {
       const thead = document.getElementById("thead-row");
       const tfoot = document.getElementById("tfoot-row");
-
       thead.innerHTML = "";
       tfoot.innerHTML = "";
 
@@ -84,30 +89,13 @@
         th1.textContent = title;
         thead.appendChild(th1);
 
-        // TFOOT: фильтры по столбцам (кроме скрытого)
+        // TFOOT: фильтры только для видимых столбцов
         const th2 = document.createElement("th");
-        if (idx !== ACTIVE_COL_INDEX) {
-          th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${title}">`;
-        } else {
-          th2.innerHTML = ""; // скрытый столбец — без фильтра
+        if (idx !== ID_COL_INDEX && idx !== ACTIVE_COL_INDEX) {
+          th2.innerHTML = `<input type="text" placeholder="Фильтр..." />`;
         }
         tfoot.appendChild(th2);
       });
-    }
-
-    function toDataTablesData(parsed) {
-      const headers = parsed.meta.fields ?? [];
-      const rows = parsed.data
-        .filter(r => Object.values(r).some(v => (v ?? "").toString().trim() !== "")) // убрать пустые строки
-        .map(obj => headers.map(h => obj[h] ?? ""));
-      return { headers, rows };
-    }
-
-    function normalizeBool(v) {
-      // приводим к "TRUE"/"FALSE" чтобы фильтр был надежным даже если в данных разный регистр/пробелы
-      const s = String(v ?? "").trim().toUpperCase();
-      if (s === "TRUE" || s === "FALSE") return s;
-      return s; // оставляем как есть на всякий случай
     }
 
     async function init() {
@@ -118,21 +106,19 @@
         skipEmptyLines: true
       });
 
-      if (parsed.errors?.length) {
-        console.warn("PapaParse errors:", parsed.errors);
-      }
-
-      const { headers, rows } = toDataTablesData(parsed);
+      const headers = parsed.meta.fields ?? [];
+      const rows = parsed.data
+        .filter(r => Object.values(r).some(v => String(v ?? "").trim() !== ""))
+        .map(obj => headers.map(h => obj[h] ?? ""));
 
       if (!headers.length) {
-        throw new Error("Не удалось определить заголовки CSV. Убедитесь, что первая строка — заголовки столбцов.");
-      }
-      if (headers.length <= ACTIVE_COL_INDEX) {
-        throw new Error("В CSV меньше 4-х столбцов. Проверьте структуру таблицы и индекс ACTIVE_COL_INDEX.");
+        throw new Error("CSV без заголовков");
       }
 
-      // Нормализуем значения в "Активна?" для надежного фильтра
-      rows.forEach(r => { r[ACTIVE_COL_INDEX] = normalizeBool(r[ACTIVE_COL_INDEX]); });
+      // нормализуем "Активна?"
+      rows.forEach(r => {
+        r[ACTIVE_COL_INDEX] = normalizeBool(r[ACTIVE_COL_INDEX]);
+      });
 
       buildHeaderAndFooter(headers);
 
@@ -141,15 +127,19 @@
         columns: headers.map(h => ({ title: h })),
         responsive: true,
         pageLength: 25,
-        lengthMenu: [10, 25, 50, 100],
         order: [],
         deferRender: true,
 
         columnDefs: [
           {
+            targets: ID_COL_INDEX,
+            visible: false,
+            searchable: false   // полностью исключаем ID
+          },
+          {
             targets: ACTIVE_COL_INDEX,
-            visible: false,   // скрываем "Активна?"
-            searchable: true  // но оставляем возможность фильтровать программно
+            visible: false,
+            searchable: true    // нужен для фильтра TRUE/FALSE
           }
         ],
 
@@ -159,16 +149,23 @@
           info: "Показано _START_–_END_ из _TOTAL_",
           infoEmpty: "Нет данных",
           zeroRecords: "Ничего не найдено",
-          paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
+          paginate: {
+            first: "Первая",
+            last: "Последняя",
+            next: "Следующая",
+            previous: "Предыдущая"
+          }
         }
       });
 
-      // Фильтр по умолчанию: показываем только TRUE
-      table.column(ACTIVE_COL_INDEX).search("^TRUE$", true, false).draw();
+      // фильтр по умолчанию: только TRUE
+      table.column(ACTIVE_COL_INDEX)
+        .search("^TRUE$", true, false)
+        .draw();
 
-      // Колоночные фильтры (tfoot inputs) — пропускаем скрытый столбец
+      // фильтры по столбцам (кроме ID и Активна?)
       table.columns().every(function (idx) {
-        if (idx === ACTIVE_COL_INDEX) return;
+        if (idx === ID_COL_INDEX || idx === ACTIVE_COL_INDEX) return;
         const that = this;
         $("input", this.footer()).on("keyup change clear", function () {
           if (that.search() !== this.value) {
@@ -177,17 +174,17 @@
         });
       });
 
-      // Чекбокс "показывать неактивные"
-      const chk = document.getElementById("showInactive");
-      chk.addEventListener("change", () => {
-        if (chk.checked) {
-          // показать все (TRUE и FALSE)
-          table.column(ACTIVE_COL_INDEX).search("", false, false).draw();
-        } else {
-          // только TRUE
-          table.column(ACTIVE_COL_INDEX).search("^TRUE$", true, false).draw();
-        }
-      });
+      // чекбокс "показывать неактивные"
+      document.getElementById("showInactive")
+        .addEventListener("change", e => {
+          if (e.target.checked) {
+            table.column(ACTIVE_COL_INDEX).search("").draw();
+          } else {
+            table.column(ACTIVE_COL_INDEX)
+              .search("^TRUE$", true, false)
+              .draw();
+          }
+        });
     }
 
     init().catch(err => {
