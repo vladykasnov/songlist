@@ -10,22 +10,13 @@
 
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 12px 0; font-size: 20px; }
-    .hint { margin: 0 0 18px 0; color: #555; font-size: 14px; }
-
-    table.dataTable thead th, table.dataTable tfoot th { white-space: nowrap; }
-    tfoot th { padding: 8px 10px; }
-    tfoot input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+    h1 { margin: 0 0 10px 0; font-size: 20px; }
+    #meta { margin: 0 0 14px 0; font-size: 12px; color: #555; }
+    table.dataTable thead th { white-space: nowrap; font-weight: 700; } /* жирные заголовки */
 
     /* Вторая строка в ячейке: артист */
-    .dt-sub {
-      font-size: 12px;
-      color: #666;
-      margin-top: 2px;
-      line-height: 1.2;
-    }
+    .dt-sub { font-size: 12px; color: #666; margin-top: 2px; line-height: 1.2; }
 
-    /* Чуть компактнее на телефоне */
     @media (max-width: 700px) {
       body { margin: 14px; }
       h1 { font-size: 18px; }
@@ -35,11 +26,10 @@
 
 <body>
   <h1>Список песен Kosmos Lada / Сонглист</h1>
-  <p class="hint">На телефоне артист отображается второй строкой под названием песни. По умолчанию показаны только активные.</p>
+  <p id="meta"></p>
 
   <table id="tbl" class="display" style="width:100%">
     <thead><tr id="thead-row"></tr></thead>
-    <tfoot><tr id="tfoot-row"></tr></tfoot>
     <tbody></tbody>
   </table>
 
@@ -52,10 +42,6 @@
     const CSV_URL =
       "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
 
-    // fallback индексы (если вдруг не найдём по заголовкам)
-    const FALLBACK_ID_COL_INDEX = 0;
-    const FALLBACK_ACTIVE_COL_INDEX = 3;
-
     const isNarrow = window.matchMedia("(max-width: 700px)").matches;
 
     function escapeHtml(s) {
@@ -67,137 +53,102 @@
         .replaceAll("'", "&#039;");
     }
 
-    async function loadCsv() {
-      const res = await fetch(CSV_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error("Не удалось загрузить CSV");
-      return await res.text();
-    }
-
     function normalizeBool(v) {
       const s = String(v ?? "").trim().toUpperCase();
       return (s === "TRUE" || s === "FALSE") ? s : s;
     }
 
+    async function loadCsvText() {
+      const res = await fetch(CSV_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Не удалось загрузить CSV");
+      return await res.text();
+    }
+
     function findCol(headers, predicate) {
-      const idx = headers.findIndex(h => predicate(String(h ?? "").trim()));
+      const idx = headers.findIndex(h => predicate(String(h ?? "").trim().toLowerCase()));
       return idx >= 0 ? idx : -1;
     }
 
-    function buildHeaderAndFooter(headers, hiddenSet) {
-      const thead = document.getElementById("thead-row");
-      const tfoot = document.getElementById("tfoot-row");
-      thead.innerHTML = "";
-      tfoot.innerHTML = "";
-
-      headers.forEach((h, idx) => {
-        const title = h || ("Колонка " + (idx + 1));
-
-        const th1 = document.createElement("th");
-        th1.textContent = title;
-        thead.appendChild(th1);
-
-        const th2 = document.createElement("th");
-        if (!hiddenSet.has(idx)) {
-          th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${escapeHtml(title)}">`;
-        }
-        tfoot.appendChild(th2);
+    function buildThead(visibleHeaders) {
+      const theadRow = document.getElementById("thead-row");
+      theadRow.innerHTML = "";
+      visibleHeaders.forEach(h => {
+        const th = document.createElement("th");
+        th.textContent = h;
+        theadRow.appendChild(th);
       });
     }
 
     async function init() {
-      const csvText = await loadCsv();
+      const csvText = await loadCsvText();
 
+      // Парсим как "матрицу", потому что первые две строки особые
       const parsed = Papa.parse(csvText, {
-        header: true,
+        header: false,
         skipEmptyLines: true
       });
 
-      const headers = parsed.meta.fields ?? [];
-      const rows = parsed.data
-        .filter(r => Object.values(r).some(v => String(v ?? "").trim() !== ""))
-        .map(obj => headers.map(h => obj[h] ?? ""));
+      const matrix = parsed.data ?? [];
+      if (matrix.length < 2) throw new Error("CSV должен содержать минимум 2 строки (мета + заголовки)");
 
-      if (!headers.length) throw new Error("CSV без заголовков");
+      // 1-я строка: мета/статистика — показываем абзацем
+      // Обычно она лежит в первой ячейке, но на всякий случай склеим непустые ячейки.
+      const metaText = matrix[0].filter(x => String(x ?? "").trim() !== "").join("  ");
+      document.getElementById("meta").textContent = metaText;
 
-      // Найдём нужные колонки по заголовкам (гибко, по подстрокам)
-      const idCol = (() => {
-        const idx = findCol(headers, h => h.toLowerCase() === "id" || h.toLowerCase().includes("id"));
-        return idx >= 0 ? idx : FALLBACK_ID_COL_INDEX;
-      })();
+      // 2-я строка: заголовки
+      const headers = matrix[1].map(h => String(h ?? "").trim());
+      if (!headers.length) throw new Error("Не удалось прочитать заголовки (2-я строка)");
 
-      const activeCol = (() => {
-        const idx = findCol(headers, h => h.toLowerCase().includes("актив"));
-        return idx >= 0 ? idx : FALLBACK_ACTIVE_COL_INDEX;
-      })();
+      // Данные начинаются с 3-й строки
+      const dataRowsRaw = matrix.slice(2)
+        .filter(r => r.some(v => String(v ?? "").trim() !== ""));
 
-      const artistCol = findCol(headers, h => h.toLowerCase().includes("артист"));
-      const songCol = (() => {
-        // пытаемся найти "песня"/"название"
-        const idx1 = findCol(headers, h => h.toLowerCase().includes("песня"));
-        if (idx1 >= 0) return idx1;
-        const idx2 = findCol(headers, h => h.toLowerCase().includes("назван"));
-        return idx2; // может быть -1, тогда просто не будем дорисовывать артиста
-      })();
+      // Найдём индексы колонок по заголовкам
+      const idCol = findCol(headers, h => h === "id" || h.includes("id"));
+      const titleCol = findCol(headers, h => h.includes("назван") || h.includes("песня") || h === "название");
+      const artistCol = findCol(headers, h => h.includes("артист"));
+      const activeCol = findCol(headers, h => h.includes("актив"));
+      const notesCol = findCol(headers, h => h.includes("замеч"));
 
-      const notesCol = findCol(headers, h => h.toLowerCase().includes("замеч"));
+      // Проверки
+      if (titleCol === -1) throw new Error("Не найдена колонка 'Название'");
+      if (artistCol === -1) throw new Error("Не найдена колонка 'Артист'");
+      if (activeCol === -1) throw new Error("Не найдена колонка 'Активна?'");
 
-      // Нормализуем "Активна?"
-      rows.forEach(r => {
-        if (activeCol >= 0 && activeCol < r.length) {
-          r[activeCol] = normalizeBool(r[activeCol]);
-        }
-      });
+      // Нормализуем активность
+      dataRowsRaw.forEach(r => { r[activeCol] = normalizeBool(r[activeCol]); });
 
-      // Какие колонки скрываем:
-      // - ID всегда скрыт и не участвует в поиске
-      // - Активна? скрыт, но участвует (для фильтра TRUE)
-      // - Замечания скрыт (и не участвует в поиске, чтобы не засорять)
-      // - Артист на узком экране скрыт (потому что показываем его под названием песни)
-      const hiddenCols = new Set([idCol, activeCol]);
-      if (notesCol >= 0) hiddenCols.add(notesCol);
-      if (isNarrow && artistCol >= 0) hiddenCols.add(artistCol);
+      // Формируем "видимые" колонки:
+      // - всегда показываем Название и Артист
+      // - но на узком экране Артист будет встроен под Название, поэтому его отдельную колонку скрываем
+      const visibleCols = [];
+      visibleCols.push({ idx: titleCol, title: headers[titleCol] || "Название" });
+      if (!isNarrow) {
+        visibleCols.push({ idx: artistCol, title: headers[artistCol] || "Артист" });
+      } else {
+        // на мобиле оставляем только "Название" как единственный видимый столбец
+        // а артиста добавим рендером внутрь ячейки
+      }
 
-      buildHeaderAndFooter(headers, hiddenCols);
+      // Заголовок таблицы — только по видимым колонкам (и он будет жирным через CSS)
+      buildThead(visibleCols.map(c => c.title));
+
+      // Подготовим данные под DataTables: только видимые колонки, но фильтрацию по ACTIVE сделаем до этого
+      // Сначала отфильтруем только TRUE
+      const activeRows = dataRowsRaw.filter(r => String(r[activeCol]).trim().toUpperCase() === "TRUE");
+
+      // Затем преобразуем в массивы видимых значений
+      const dtRows = activeRows.map(r => visibleCols.map(c => r[c.idx] ?? ""));
 
       const table = $("#tbl").DataTable({
-        data: rows,                         // raw
-        columns: headers.map(h => ({ title: h })),
-        responsive: false,                  // отключаем “треугольники” и child-строки
+        data: dtRows.map(r => r.map(escapeHtml)),
+        columns: visibleCols.map(c => ({ title: c.title })),
+        responsive: false,     // убираем треугольники/child-row
         pageLength: 25,
         order: [],
         deferRender: true,
         autoWidth: false,
-
-        columnDefs: [
-          // ID: скрыть полностью и исключить из поиска
-          { targets: idCol, visible: false, searchable: false },
-
-          // Активна?: скрыть, но оставить searchable (нужно для фильтра по умолчанию)
-          { targets: activeCol, visible: false, searchable: true },
-
-          // Замечания: скрыть и исключить из поиска
-          ...(notesCol >= 0 ? [{ targets: notesCol, visible: false, searchable: false }] : []),
-
-          // Артист на узком экране скрываем (показываем под песней)
-          ...(isNarrow && artistCol >= 0 ? [{ targets: artistCol, visible: false, searchable: true }] : []),
-
-          // Рендер для "песня": на узком экране добавляем артиста второй строкой
-          ...(isNarrow && songCol >= 0 && artistCol >= 0 ? [{
-            targets: songCol,
-            render: function (data, type, row) {
-              const title = String(data ?? "");
-              const artist = String(row[artistCol] ?? "");
-              if (type === "display") {
-                const titleHtml = escapeHtml(title);
-                const artistHtml = artist.trim() ? `<div class="dt-sub">${escapeHtml(artist)}</div>` : "";
-                return `<div>${titleHtml}</div>${artistHtml}`;
-              }
-              // для сортировки/поиска используем исходные данные
-              return title;
-            }
-          }] : [])
-        ],
-
         language: {
           search: "Поиск:",
           lengthMenu: "Показывать _MENU_ строк",
@@ -205,24 +156,31 @@
           infoEmpty: "Нет данных",
           zeroRecords: "Ничего не найдено",
           paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
-        }
+        },
+        columnDefs: [
+          // На мобиле в единственном видимом столбце (Название) дорисуем артиста второй строкой.
+          ...(isNarrow ? [{
+            targets: 0, // единственная колонка "Название"
+            render: function (data, type, row, meta) {
+              // row здесь — массив dtRows (только видимые колонки). Артиста в нем нет.
+              // Поэтому возьмем артиста из исходной строки activeRows по meta.row.
+              const title = String(data ?? "");
+              const artist = String((activeRows[meta.row] ?? [])[artistCol] ?? "");
+              if (type === "display") {
+                const titleHtml = escapeHtml(title);
+                const artistHtml = artist.trim() ? `<div class="dt-sub">${escapeHtml(artist)}</div>` : "";
+                return `<div>${titleHtml}</div>${artistHtml}`;
+              }
+              return title;
+            }
+          }] : [])
+        ]
       });
 
-      // Фильтр по умолчанию: только TRUE
-      table.column(activeCol).search("^TRUE$", true, false).draw();
-
-      // Фильтры по столбцам (только для тех, где есть input)
-      table.columns().every(function (idx) {
-        const input = $("input", this.footer());
-        if (!input.length) return;
-
-        const that = this;
-        input.on("keyup change clear", function () {
-          if (that.search() !== this.value) {
-            that.search(this.value).draw();
-          }
-        });
-      });
+      // Колонка "Замечания" фактически не участвует вообще:
+      // - мы её не включаем в visibleCols
+      // - и не тащим в dtRows
+      // поэтому ничего дополнительно скрывать/исключать не нужно.
     }
 
     init().catch(err => {
