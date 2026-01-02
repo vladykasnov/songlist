@@ -5,16 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Сонглист</title>
 
-  <!-- DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
     h1 { margin: 0 0 10px 0; font-size: 20px; }
     #meta { margin: 0 0 14px 0; font-size: 12px; color: #555; }
-    table.dataTable thead th { white-space: nowrap; font-weight: 700; } /* жирные заголовки */
+    table.dataTable thead th { white-space: nowrap; font-weight: 700; }
 
-    /* Вторая строка в ячейке: артист */
     .dt-sub { font-size: 12px; color: #666; margin-top: 2px; line-height: 1.2; }
 
     @media (max-width: 700px) {
@@ -33,7 +31,6 @@
     <tbody></tbody>
   </table>
 
-  <!-- Dependencies -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -69,12 +66,12 @@
       return idx >= 0 ? idx : -1;
     }
 
-    function buildThead(visibleHeaders) {
+    function buildThead(labels) {
       const theadRow = document.getElementById("thead-row");
       theadRow.innerHTML = "";
-      visibleHeaders.forEach(h => {
+      labels.forEach(l => {
         const th = document.createElement("th");
-        th.textContent = h;
+        th.textContent = l;
         theadRow.appendChild(th);
       });
     }
@@ -82,69 +79,50 @@
     async function init() {
       const csvText = await loadCsvText();
 
-      // Парсим как "матрицу", потому что первые две строки особые
-      const parsed = Papa.parse(csvText, {
-        header: false,
-        skipEmptyLines: true
-      });
-
+      const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
       const matrix = parsed.data ?? [];
       if (matrix.length < 2) throw new Error("CSV должен содержать минимум 2 строки (мета + заголовки)");
 
-      // 1-я строка: мета/статистика — показываем абзацем
-      // Обычно она лежит в первой ячейке, но на всякий случай склеим непустые ячейки.
+      // 1-я строка: мета
       const metaText = matrix[0].filter(x => String(x ?? "").trim() !== "").join("  ");
       document.getElementById("meta").textContent = metaText;
 
       // 2-я строка: заголовки
       const headers = matrix[1].map(h => String(h ?? "").trim());
-      if (!headers.length) throw new Error("Не удалось прочитать заголовки (2-я строка)");
 
-      // Данные начинаются с 3-й строки
-      const dataRowsRaw = matrix.slice(2)
-        .filter(r => r.some(v => String(v ?? "").trim() !== ""));
+      // данные
+      const dataRows = matrix.slice(2).filter(r => r.some(v => String(v ?? "").trim() !== ""));
 
-      // Найдём индексы колонок по заголовкам
-      const idCol = findCol(headers, h => h === "id" || h.includes("id"));
-      const titleCol = findCol(headers, h => h.includes("назван") || h.includes("песня") || h === "название");
+      // индексы нужных колонок
+      const titleCol  = findCol(headers, h => h.includes("назван") || h.includes("песня") || h === "название");
       const artistCol = findCol(headers, h => h.includes("артист"));
       const activeCol = findCol(headers, h => h.includes("актив"));
-      const notesCol = findCol(headers, h => h.includes("замеч"));
 
-      // Проверки
       if (titleCol === -1) throw new Error("Не найдена колонка 'Название'");
       if (artistCol === -1) throw new Error("Не найдена колонка 'Артист'");
       if (activeCol === -1) throw new Error("Не найдена колонка 'Активна?'");
 
-      // Нормализуем активность
-      dataRowsRaw.forEach(r => { r[activeCol] = normalizeBool(r[activeCol]); });
+      // нормализуем активность и фильтруем только TRUE
+      dataRows.forEach(r => { r[activeCol] = normalizeBool(r[activeCol]); });
+      const activeRows = dataRows.filter(r => String(r[activeCol]).trim().toUpperCase() === "TRUE");
 
-      // Формируем "видимые" колонки:
-      // - всегда показываем Название и Артист
-      // - но на узком экране Артист будет встроен под Название, поэтому его отдельную колонку скрываем
-      const visibleCols = [];
-      visibleCols.push({ idx: titleCol, title: headers[titleCol] || "Название" });
-      if (!isNarrow) {
-        visibleCols.push({ idx: artistCol, title: headers[artistCol] || "Артист" });
-      } else {
-        // на мобиле оставляем только "Название" как единственный видимый столбец
-        // а артиста добавим рендером внутрь ячейки
-      }
+      // ВАЖНО: даже на мобиле сохраняем артиста как скрытую колонку для поиска
+      // Структура данных для DataTables всегда: [Название, Артист]
+      const dtRows = activeRows.map(r => [r[titleCol] ?? "", r[artistCol] ?? ""]);
 
-      // Заголовок таблицы — только по видимым колонкам (и он будет жирным через CSS)
-      buildThead(visibleCols.map(c => c.title));
-
-      // Подготовим данные под DataTables: только видимые колонки, но фильтрацию по ACTIVE сделаем до этого
-      // Сначала отфильтруем только TRUE
-      const activeRows = dataRowsRaw.filter(r => String(r[activeCol]).trim().toUpperCase() === "TRUE");
-
-      // Затем преобразуем в массивы видимых значений
-      const dtRows = activeRows.map(r => visibleCols.map(c => r[c.idx] ?? ""));
+      // Заголовки:
+      // - на десктопе: Название | Артист
+      // - на мобиле: показываем только "Название" (но "Артист" будет скрытым столбцом)
+      if (isNarrow) buildThead([headers[titleCol] || "Название", headers[artistCol] || "Артист"]);
+      else buildThead([headers[titleCol] || "Название", headers[artistCol] || "Артист"]);
 
       const table = $("#tbl").DataTable({
         data: dtRows.map(r => r.map(escapeHtml)),
-        columns: visibleCols.map(c => ({ title: c.title })),
-        responsive: false,     // убираем треугольники/child-row
+        columns: [
+          { title: headers[titleCol] || "Название" },
+          { title: headers[artistCol] || "Артист" }
+        ],
+        responsive: false,
         pageLength: 25,
         order: [],
         deferRender: true,
@@ -158,14 +136,19 @@
           paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
         },
         columnDefs: [
-          // На мобиле в единственном видимом столбце (Название) дорисуем артиста второй строкой.
+          // На мобиле скрываем 2-й столбец (Артист), но оставляем searchable:true
           ...(isNarrow ? [{
-            targets: 0, // единственная колонка "Название"
-            render: function (data, type, row, meta) {
-              // row здесь — массив dtRows (только видимые колонки). Артиста в нем нет.
-              // Поэтому возьмем артиста из исходной строки activeRows по meta.row.
+            targets: 1,
+            visible: false,
+            searchable: true
+          }] : []),
+
+          // На мобиле дорисовываем артиста внутрь первой колонки
+          ...(isNarrow ? [{
+            targets: 0,
+            render: function (data, type, row) {
               const title = String(data ?? "");
-              const artist = String((activeRows[meta.row] ?? [])[artistCol] ?? "");
+              const artist = String(row[1] ?? ""); // row[1] — артист (скрытая колонка)
               if (type === "display") {
                 const titleHtml = escapeHtml(title);
                 const artistHtml = artist.trim() ? `<div class="dt-sub">${escapeHtml(artist)}</div>` : "";
@@ -176,11 +159,6 @@
           }] : [])
         ]
       });
-
-      // Колонка "Замечания" фактически не участвует вообще:
-      // - мы её не включаем в visibleCols
-      // - и не тащим в dtRows
-      // поэтому ничего дополнительно скрывать/исключать не нужно.
     }
 
     init().catch(err => {
