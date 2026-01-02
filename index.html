@@ -3,28 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Таблица</title>
+  <title>Сонглист</title>
 
   <!-- DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
 
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
     h1 { margin: 0 0 12px 0; font-size: 20px; }
     .hint { margin: 0 0 18px 0; color: #555; font-size: 14px; }
+
     table.dataTable thead th, table.dataTable tfoot th { white-space: nowrap; }
     tfoot th { padding: 8px 10px; }
     tfoot input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
-    .toolbar { display: flex; gap: 12px; align-items: center; margin: 0 0 12px 0; }
-    .toolbar label { font-size: 14px; display: inline-flex; gap: 8px; align-items: center; }
+
+    /* Вторая строка в ячейке: артист */
+    .dt-sub {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+      line-height: 1.2;
+    }
+
+    /* Чуть компактнее на телефоне */
+    @media (max-width: 700px) {
+      body { margin: 14px; }
+      h1 { font-size: 18px; }
+    }
   </style>
 </head>
 
 <body>
   <h1>Список песен Kosmos Lada / Сонглист</h1>
+  <p class="hint">На телефоне артист отображается второй строкой под названием песни. По умолчанию показаны только активные.</p>
 
-  <table id="tbl" class="display nowrap" style="width:100%">
+  <table id="tbl" class="display" style="width:100%">
     <thead><tr id="thead-row"></tr></thead>
     <tfoot><tr id="tfoot-row"></tr></tfoot>
     <tbody></tbody>
@@ -33,16 +46,17 @@
   <!-- Dependencies -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
     const CSV_URL =
       "https://docs.google.com/spreadsheets/d/e/2PACX-1vQT--4KZJ3KbXm8HRJviqgQ5lx9FZKeJ_u9UFX3A3uNhFNa1-ELmJnHcFGqC66Y4pY8R8GZbVOeKn-i/pub?gid=1948772342&single=true&output=csv";
 
-    // индексы столбцов (0-based)
-    const ID_COL_INDEX = 0;       // ID (внутренний)
-    const ACTIVE_COL_INDEX = 3;   // "Активна?"
+    // fallback индексы (если вдруг не найдём по заголовкам)
+    const FALLBACK_ID_COL_INDEX = 0;
+    const FALLBACK_ACTIVE_COL_INDEX = 3;
+
+    const isNarrow = window.matchMedia("(max-width: 700px)").matches;
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -61,10 +75,15 @@
 
     function normalizeBool(v) {
       const s = String(v ?? "").trim().toUpperCase();
-      return s === "TRUE" || s === "FALSE" ? s : s;
+      return (s === "TRUE" || s === "FALSE") ? s : s;
     }
 
-    function buildHeaderAndFooter(headers) {
+    function findCol(headers, predicate) {
+      const idx = headers.findIndex(h => predicate(String(h ?? "").trim()));
+      return idx >= 0 ? idx : -1;
+    }
+
+    function buildHeaderAndFooter(headers, hiddenSet) {
       const thead = document.getElementById("thead-row");
       const tfoot = document.getElementById("tfoot-row");
       thead.innerHTML = "";
@@ -73,15 +92,13 @@
       headers.forEach((h, idx) => {
         const title = h || ("Колонка " + (idx + 1));
 
-        // THEAD
         const th1 = document.createElement("th");
         th1.textContent = title;
         thead.appendChild(th1);
 
-        // TFOOT: фильтры только для видимых столбцов
         const th2 = document.createElement("th");
-        if (idx !== ID_COL_INDEX && idx !== ACTIVE_COL_INDEX) {
-          th2.innerHTML = `<input type="text" placeholder="Фильтр..." />`;
+        if (!hiddenSet.has(idx)) {
+          th2.innerHTML = `<input type="text" placeholder="Фильтр..." aria-label="Фильтр по столбцу ${escapeHtml(title)}">`;
         }
         tfoot.appendChild(th2);
       });
@@ -100,36 +117,85 @@
         .filter(r => Object.values(r).some(v => String(v ?? "").trim() !== ""))
         .map(obj => headers.map(h => obj[h] ?? ""));
 
-      if (!headers.length) {
-        throw new Error("CSV без заголовков");
-      }
+      if (!headers.length) throw new Error("CSV без заголовков");
 
-      // нормализуем "Активна?"
+      // Найдём нужные колонки по заголовкам (гибко, по подстрокам)
+      const idCol = (() => {
+        const idx = findCol(headers, h => h.toLowerCase() === "id" || h.toLowerCase().includes("id"));
+        return idx >= 0 ? idx : FALLBACK_ID_COL_INDEX;
+      })();
+
+      const activeCol = (() => {
+        const idx = findCol(headers, h => h.toLowerCase().includes("актив"));
+        return idx >= 0 ? idx : FALLBACK_ACTIVE_COL_INDEX;
+      })();
+
+      const artistCol = findCol(headers, h => h.toLowerCase().includes("артист"));
+      const songCol = (() => {
+        // пытаемся найти "песня"/"название"
+        const idx1 = findCol(headers, h => h.toLowerCase().includes("песня"));
+        if (idx1 >= 0) return idx1;
+        const idx2 = findCol(headers, h => h.toLowerCase().includes("назван"));
+        return idx2; // может быть -1, тогда просто не будем дорисовывать артиста
+      })();
+
+      const notesCol = findCol(headers, h => h.toLowerCase().includes("замеч"));
+
+      // Нормализуем "Активна?"
       rows.forEach(r => {
-        r[ACTIVE_COL_INDEX] = normalizeBool(r[ACTIVE_COL_INDEX]);
+        if (activeCol >= 0 && activeCol < r.length) {
+          r[activeCol] = normalizeBool(r[activeCol]);
+        }
       });
 
-      buildHeaderAndFooter(headers);
+      // Какие колонки скрываем:
+      // - ID всегда скрыт и не участвует в поиске
+      // - Активна? скрыт, но участвует (для фильтра TRUE)
+      // - Замечания скрыт (и не участвует в поиске, чтобы не засорять)
+      // - Артист на узком экране скрыт (потому что показываем его под названием песни)
+      const hiddenCols = new Set([idCol, activeCol]);
+      if (notesCol >= 0) hiddenCols.add(notesCol);
+      if (isNarrow && artistCol >= 0) hiddenCols.add(artistCol);
+
+      buildHeaderAndFooter(headers, hiddenCols);
 
       const table = $("#tbl").DataTable({
-        data: rows.map(r => r.map(escapeHtml)),
+        data: rows,                         // raw
         columns: headers.map(h => ({ title: h })),
-        responsive: true,
+        responsive: false,                  // отключаем “треугольники” и child-строки
         pageLength: 25,
         order: [],
         deferRender: true,
+        autoWidth: false,
 
         columnDefs: [
-          {
-            targets: ID_COL_INDEX,
-            visible: false,
-            searchable: false   // полностью исключаем ID
-          },
-          {
-            targets: ACTIVE_COL_INDEX,
-            visible: false,
-            searchable: true    // нужен для фильтра TRUE/FALSE
-          }
+          // ID: скрыть полностью и исключить из поиска
+          { targets: idCol, visible: false, searchable: false },
+
+          // Активна?: скрыть, но оставить searchable (нужно для фильтра по умолчанию)
+          { targets: activeCol, visible: false, searchable: true },
+
+          // Замечания: скрыть и исключить из поиска
+          ...(notesCol >= 0 ? [{ targets: notesCol, visible: false, searchable: false }] : []),
+
+          // Артист на узком экране скрываем (показываем под песней)
+          ...(isNarrow && artistCol >= 0 ? [{ targets: artistCol, visible: false, searchable: true }] : []),
+
+          // Рендер для "песня": на узком экране добавляем артиста второй строкой
+          ...(isNarrow && songCol >= 0 && artistCol >= 0 ? [{
+            targets: songCol,
+            render: function (data, type, row) {
+              const title = String(data ?? "");
+              const artist = String(row[artistCol] ?? "");
+              if (type === "display") {
+                const titleHtml = escapeHtml(title);
+                const artistHtml = artist.trim() ? `<div class="dt-sub">${escapeHtml(artist)}</div>` : "";
+                return `<div>${titleHtml}</div>${artistHtml}`;
+              }
+              // для сортировки/поиска используем исходные данные
+              return title;
+            }
+          }] : [])
         ],
 
         language: {
@@ -138,25 +204,20 @@
           info: "Показано _START_–_END_ из _TOTAL_",
           infoEmpty: "Нет данных",
           zeroRecords: "Ничего не найдено",
-          paginate: {
-            first: "Первая",
-            last: "Последняя",
-            next: "Следующая",
-            previous: "Предыдущая"
-          }
+          paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
         }
       });
 
-      // фильтр по умолчанию: только TRUE
-      table.column(ACTIVE_COL_INDEX)
-        .search("^TRUE$", true, false)
-        .draw();
+      // Фильтр по умолчанию: только TRUE
+      table.column(activeCol).search("^TRUE$", true, false).draw();
 
-      // фильтры по столбцам (кроме ID и Активна?)
+      // Фильтры по столбцам (только для тех, где есть input)
       table.columns().every(function (idx) {
-        if (idx === ID_COL_INDEX || idx === ACTIVE_COL_INDEX) return;
+        const input = $("input", this.footer());
+        if (!input.length) return;
+
         const that = this;
-        $("input", this.footer()).on("keyup change clear", function () {
+        input.on("keyup change clear", function () {
           if (that.search() !== this.value) {
             that.search(this.value).draw();
           }
