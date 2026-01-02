@@ -79,6 +79,7 @@
     async function init() {
       const csvText = await loadCsvText();
 
+      // Парсим как матрицу: 1-я строка мета, 2-я заголовки
       const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
       const matrix = parsed.data ?? [];
       if (matrix.length < 2) throw new Error("CSV должен содержать минимум 2 строки (мета + заголовки)");
@@ -90,10 +91,10 @@
       // 2-я строка: заголовки
       const headers = matrix[1].map(h => String(h ?? "").trim());
 
-      // данные
+      // Данные
       const dataRows = matrix.slice(2).filter(r => r.some(v => String(v ?? "").trim() !== ""));
 
-      // индексы нужных колонок
+      // Индексы нужных колонок
       const titleCol  = findCol(headers, h => h.includes("назван") || h.includes("песня") || h === "название");
       const artistCol = findCol(headers, h => h.includes("артист"));
       const activeCol = findCol(headers, h => h.includes("актив"));
@@ -102,25 +103,24 @@
       if (artistCol === -1) throw new Error("Не найдена колонка 'Артист'");
       if (activeCol === -1) throw new Error("Не найдена колонка 'Активна?'");
 
-      // нормализуем активность и фильтруем только TRUE
+      // Нормализуем активность и фильтруем только TRUE
       dataRows.forEach(r => { r[activeCol] = normalizeBool(r[activeCol]); });
       const activeRows = dataRows.filter(r => String(r[activeCol]).trim().toUpperCase() === "TRUE");
 
-      // ВАЖНО: даже на мобиле сохраняем артиста как скрытую колонку для поиска
-      // Структура данных для DataTables всегда: [Название, Артист]
+      // В DataTables всегда храним [Название, Артист] — сырые строки (БЕЗ escape)
       const dtRows = activeRows.map(r => [r[titleCol] ?? "", r[artistCol] ?? ""]);
 
-      // Заголовки:
-      // - на десктопе: Название | Артист
-      // - на мобиле: показываем только "Название" (но "Артист" будет скрытым столбцом)
-      if (isNarrow) buildThead([headers[titleCol] || "Название", headers[artistCol] || "Артист"]);
-      else buildThead([headers[titleCol] || "Название", headers[artistCol] || "Артист"]);
+      const titleHeader = headers[titleCol] || "Название";
+      const artistHeader = headers[artistCol] || "Артист";
 
-      const table = $("#tbl").DataTable({
-        data: dtRows.map(r => r.map(escapeHtml)),
+      // THEAD должен иметь 2 колонки всегда (даже если 2-я скрыта на мобиле)
+      buildThead([titleHeader, artistHeader]);
+
+      $("#tbl").DataTable({
+        data: dtRows, // <-- важно: сырые данные
         columns: [
-          { title: headers[titleCol] || "Название" },
-          { title: headers[artistCol] || "Артист" }
+          { title: titleHeader },
+          { title: artistHeader }
         ],
         responsive: false,
         pageLength: 25,
@@ -136,25 +136,35 @@
           paginate: { first: "Первая", last: "Последняя", next: "Следующая", previous: "Предыдущая" }
         },
         columnDefs: [
-          // На мобиле скрываем 2-й столбец (Артист), но оставляем searchable:true
+          // На мобиле: скрываем "Артист", но оставляем searchable
           ...(isNarrow ? [{
             targets: 1,
             visible: false,
             searchable: true
           }] : []),
 
-          // На мобиле дорисовываем артиста внутрь первой колонки
+          // На мобиле: в первой колонке показываем Название + Артист второй строкой
           ...(isNarrow ? [{
             targets: 0,
             render: function (data, type, row) {
               const title = String(data ?? "");
-              const artist = String(row[1] ?? ""); // row[1] — артист (скрытая колонка)
+              const artist = String(row[1] ?? "");
               if (type === "display") {
                 const titleHtml = escapeHtml(title);
                 const artistHtml = artist.trim() ? `<div class="dt-sub">${escapeHtml(artist)}</div>` : "";
                 return `<div>${titleHtml}</div>${artistHtml}`;
               }
+              // для сортировки/поиска используем сырое значение
               return title;
+            }
+          }] : []),
+
+          // На десктопе: безопасный вывод обоих столбцов (escape только на display)
+          ...(!isNarrow ? [{
+            targets: [0, 1],
+            render: function (data, type) {
+              if (type === "display") return escapeHtml(data);
+              return data;
             }
           }] : [])
         ]
