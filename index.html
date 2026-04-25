@@ -122,13 +122,18 @@
     .tag.active { background: #222; color: #fff; border-color: #222; }
     .tag .count { opacity: 0.55; margin-left: 4px; font-variant-numeric: tabular-nums; }
 
-    .actions { text-align: center; margin: -10px 0 16px; }
+    .actions {
+      display: flex; justify-content: center; gap: 8px;
+      flex-wrap: wrap; margin: -10px 0 16px;
+    }
     .action-btn {
+      display: inline-block;
       background: none; border: 1px solid #ddd;
       color: #333;
       font-size: 13px; cursor: pointer;
       padding: 5px 14px; border-radius: 999px;
       font-family: inherit; line-height: 1.3;
+      text-decoration: none;
       transition: border-color .15s, background-color .15s;
     }
     .action-btn:hover { border-color: #888; background: rgba(255, 213, 79, 0.12); }
@@ -201,7 +206,10 @@
   <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Тема"></button>
   <h1>Список песен Kosmos Lada</h1>
   <p class="meta" id="meta">Загрузка…</p>
-  <div class="actions"><button type="button" class="action-btn" id="random-btn">→ случайная песня</button></div>
+  <div class="actions">
+    <button type="button" class="action-btn" id="random-btn">→ случайная песня</button>
+    <a class="action-btn" href="links.html">→ ссылки и поддержка</a>
+  </div>
 
   <div class="search-wrap">
     <input
