@@ -7,6 +7,10 @@
   <meta name="description" content="Сонглист группы Kosmos Lada — поиск по названию, артисту и тегам.">
 
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='14'%3E♪%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
 
   <meta property="og:title" content="Список песен Kosmos Lada">
   <meta property="og:description" content="Сонглист группы Kosmos Lada — поиск по названию, артисту и тегам.">
@@ -68,7 +72,11 @@
     ul.songs li {
       padding: 10px 4px;
       border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: background-color .12s;
     }
+    ul.songs li:hover { background-color: rgba(0, 0, 0, 0.025); }
+    .theme-dark ul.songs li:hover { background-color: rgba(255, 255, 255, 0.04); }
     .title { font-size: 15px; }
     .artist { font-size: 12px; color: #777; margin-top: 2px; display: block; }
 
@@ -164,6 +172,29 @@
     .theme-dark .action-btn:hover { border-color: #6a6a6a; background: rgba(255, 213, 79, 0.1); }
     .theme-dark .theme-toggle { background: #1c1c1c; border-color: #3a3a3a; color: #ccc; }
     .theme-dark .theme-toggle:hover { border-color: #6a6a6a; color: #fff; }
+
+    .tag-reset { color: #888; border-style: dashed; }
+    .tag-reset:hover { color: #222; border-style: solid; border-color: #888; background: transparent; }
+    .theme-dark .tag-reset { color: #888; border-color: #3a3a3a; background: transparent; }
+    .theme-dark .tag-reset:hover { color: #fff; border-color: #6a6a6a; background: transparent; }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 24px;
+      transform: translateX(-50%) translateY(8px);
+      background: rgba(20, 20, 20, 0.92); color: #fff;
+      padding: 8px 16px; border-radius: 8px;
+      font-size: 13px;
+      max-width: calc(100% - 32px);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      opacity: 0; pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+      z-index: 100;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .flash, .toast, .action-btn, .theme-toggle, ul.songs li { animation: none !important; transition: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -189,6 +220,8 @@
 
   <ul class="songs" id="list"></ul>
   <div class="pager" id="pager"></div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script>
@@ -267,13 +300,26 @@
 
     function renderTags() {
       const el = $("tags");
-      if (!state.tagList.length) { el.innerHTML = ""; return; }
-      el.innerHTML = state.tagList.map(([name, count]) => {
+      const chips = state.tagList.map(([name, count]) => {
         const active = state.tags.has(name) ? " active" : "";
         const safe = escapeHtml(name);
         return '<button type="button" class="tag' + active + '" data-tag="' + safe + '">' +
                safe + '<span class="count">' + count + '</span></button>';
-      }).join("");
+      });
+      if (state.query || state.tags.size) {
+        chips.push('<button type="button" class="tag tag-reset" id="tag-reset">× сбросить</button>');
+      }
+      el.innerHTML = chips.join("");
+    }
+
+    function resetFilters() {
+      state.query = "";
+      state.tags.clear();
+      searchInput.value = "";
+      clearBtn.style.display = "none";
+      renderTags();
+      applyFilter();
+      searchInput.focus();
     }
 
     // ---- URL state (#q=...&tags=a,b) ----
@@ -312,7 +358,8 @@
         for (let i = start; i < end; i++) {
           const s = state.filtered[i];
           html.push(
-            '<li><span class="title">' + highlight(s.title, terms) + '</span>' +
+            '<li data-title="' + escapeHtml(s.title) + '">' +
+            '<span class="title">' + highlight(s.title, terms) + '</span>' +
             (s.artist ? '<span class="artist">' + highlight(s.artist, terms) + '</span>' : '') +
             '</li>'
           );
@@ -355,10 +402,11 @@
       else if (v === "next") state.page = Math.min(totalPages, state.page + 1);
       else state.page = parseInt(v, 10);
       render();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: reduceMotion() ? "auto" : "smooth" });
     });
 
     $("tags").addEventListener("click", e => {
+      if (e.target.closest("#tag-reset")) { resetFilters(); return; }
       const btn = e.target.closest("button[data-tag]");
       if (!btn) return;
       const t = btn.dataset.tag;
@@ -367,6 +415,30 @@
       renderTags();
       applyFilter();
     });
+
+    // ---- Клик по песне → копирование названия в буфер ----
+    let toastTimer = null;
+    function showToast(text) {
+      const t = $("toast");
+      t.textContent = text;
+      t.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+    }
+    $("list").addEventListener("click", e => {
+      const li = e.target.closest("li[data-title]");
+      if (!li) return;
+      const title = li.dataset.title;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(title)
+          .then(() => showToast("Скопировано: " + title))
+          .catch(() => showToast("Не удалось скопировать"));
+      } else {
+        showToast("Буфер обмена недоступен");
+      }
+    });
+
+    const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     window.addEventListener("hashchange", () => {
       readUrl();
@@ -420,10 +492,12 @@
       requestAnimationFrame(() => {
         const li = $("list").children[inPage];
         if (!li) return;
-        li.classList.remove("flash");
-        void li.offsetWidth; // restart animation
-        li.classList.add("flash");
-        li.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (!reduceMotion()) {
+          li.classList.remove("flash");
+          void li.offsetWidth; // restart animation
+          li.classList.add("flash");
+        }
+        li.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "center" });
       });
     }
     $("random-btn").addEventListener("click", pickRandom);
