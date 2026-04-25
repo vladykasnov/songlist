@@ -144,8 +144,15 @@
       font-weight: 500;
     }
     .action-btn--primary:hover { background: #000; border-color: #000; }
-    .theme-dark .action-btn--primary { background: #fff; color: #111; border-color: #fff; }
-    .theme-dark .action-btn--primary:hover { background: #ddd; border-color: #ddd; }
+    .theme-dark .action-btn--primary { background: transparent; color: #e6e6e6; border-color: #ffd54f; }
+    .theme-dark .action-btn--primary:hover { background: rgba(255, 213, 79, 0.1); border-color: #ffd54f; }
+
+    .action-btn--icon {
+      padding: 0;
+      width: 30px; height: 30px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .action-btn--icon svg { width: 15px; height: 15px; display: block; }
 
     @keyframes flashFade {
       from { background-color: rgba(255, 213, 79, 0.5); }
@@ -218,7 +225,13 @@
   <div class="actions">
     <a class="action-btn action-btn--primary" href="links.html">→ ссылки и поддержка</a>
     <button type="button" class="action-btn" id="random-btn">→ случайная песня</button>
-    <button type="button" class="action-btn" id="share-btn" hidden>↗ поделиться</button>
+    <button type="button" class="action-btn action-btn--icon" id="share-btn" hidden aria-label="Поделиться" title="Поделиться">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/>
+        <polyline points="16 6 12 2 8 6"/>
+        <line x1="12" y1="2" x2="12" y2="15"/>
+      </svg>
+    </button>
   </div>
 
   <div class="search-wrap">
