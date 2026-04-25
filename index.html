@@ -139,6 +139,14 @@
     }
     .action-btn:hover { border-color: #888; background: rgba(255, 213, 79, 0.12); }
 
+    .action-btn--primary {
+      background: #222; color: #fff; border-color: #222;
+      font-weight: 500;
+    }
+    .action-btn--primary:hover { background: #000; border-color: #000; }
+    .theme-dark .action-btn--primary { background: #fff; color: #111; border-color: #fff; }
+    .theme-dark .action-btn--primary:hover { background: #ddd; border-color: #ddd; }
+
     @keyframes flashFade {
       from { background-color: rgba(255, 213, 79, 0.5); }
       to   { background-color: transparent; }
@@ -208,9 +216,9 @@
   <h1>Список песен Kosmos Lada</h1>
   <p class="meta" id="meta">Загрузка…</p>
   <div class="actions">
+    <a class="action-btn action-btn--primary" href="links.html">→ ссылки и поддержка</a>
     <button type="button" class="action-btn" id="random-btn">→ случайная песня</button>
     <button type="button" class="action-btn" id="share-btn" hidden>↗ поделиться</button>
-    <a class="action-btn" href="links.html">→ ссылки и поддержка</a>
   </div>
 
   <div class="search-wrap">
