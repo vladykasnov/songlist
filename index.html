@@ -208,6 +208,7 @@
   <p class="meta" id="meta">Загрузка…</p>
   <div class="actions">
     <button type="button" class="action-btn" id="random-btn">→ случайная песня</button>
+    <button type="button" class="action-btn" id="share-btn" hidden>↗ поделиться</button>
     <a class="action-btn" href="links.html">→ ссылки и поддержка</a>
   </div>
 
@@ -512,6 +513,23 @@
       });
     }
     $("random-btn").addEventListener("click", pickRandom);
+
+    // ---- Web Share API: поделиться текущей ссылкой (с фильтрами в hash) ----
+    if (typeof navigator.share === "function") {
+      const shareBtn = $("share-btn");
+      shareBtn.hidden = false;
+      shareBtn.addEventListener("click", async () => {
+        try {
+          await navigator.share({
+            title: document.title,
+            url: location.href
+          });
+        } catch (e) {
+          // Пользователь отменил шаринг — это норма, тихо проглатываем.
+          if (e && e.name !== "AbortError") console.warn(e);
+        }
+      });
+    }
 
     // Хоткеи: "/" фокусит поиск, Esc очищает (или снимает фокус, если уже пусто).
     document.addEventListener("keydown", e => {
