@@ -3,9 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Сонглист</title>
+  <title>Сонглист — Kosmos Lada</title>
+  <meta name="description" content="Сонглист группы Kosmos Lada — поиск по названию, артисту и тегам.">
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='14'%3E♪%3C/text%3E%3C/svg%3E">
+
+  <meta property="og:title" content="Список песен Kosmos Lada">
+  <meta property="og:description" content="Сонглист группы Kosmos Lada — поиск по названию, артисту и тегам.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://vladykasnov.github.io/songlist/">
+  <meta name="twitter:card" content="summary">
+
+  <script>
+    // Применяем тему до отрисовки, чтобы избежать вспышки светлого фона.
+    (function () {
+      try {
+        var t = localStorage.getItem("songlist-theme") || "system";
+        var dark = (t === "dark") ||
+          (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("theme-dark");
+      } catch (e) {}
+    })();
+  </script>
+
   <style>
-    :root { color-scheme: light; }
+    :root { color-scheme: light dark; }
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
@@ -91,11 +113,64 @@
     .tag:hover { border-color: #888; }
     .tag.active { background: #222; color: #fff; border-color: #222; }
     .tag .count { opacity: 0.55; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+    .actions { text-align: center; margin: -10px 0 16px; }
+    .action-btn {
+      background: none; border: 1px solid #ddd;
+      color: #333;
+      font-size: 13px; cursor: pointer;
+      padding: 5px 14px; border-radius: 999px;
+      font-family: inherit; line-height: 1.3;
+      transition: border-color .15s, background-color .15s;
+    }
+    .action-btn:hover { border-color: #888; background: rgba(255, 213, 79, 0.12); }
+
+    @keyframes flashFade {
+      from { background-color: rgba(255, 213, 79, 0.5); }
+      to   { background-color: transparent; }
+    }
+    .flash { animation: flashFade 1.6s ease-out; }
+
+    .theme-toggle {
+      position: fixed; top: 12px; right: 12px;
+      width: 32px; height: 32px;
+      border: 1px solid #ddd; background: #fff;
+      color: #555; cursor: pointer;
+      border-radius: 50%; padding: 0;
+      font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit;
+    }
+    .theme-toggle:hover { border-color: #888; color: #222; }
+
+    .theme-dark body { background: #161616; color: #e6e6e6; }
+    .theme-dark .meta { color: #888; }
+    .theme-dark .search { background: #1c1c1c; border-color: #3a3a3a; color: #e6e6e6; }
+    .theme-dark .search:focus { border-color: #6a6a6a; }
+    .theme-dark .search-clear { color: #888; }
+    .theme-dark .search-clear:hover { color: #ddd; }
+    .theme-dark ul.songs, .theme-dark ul.songs li { border-color: #2a2a2a; }
+    .theme-dark .artist, .theme-dark .empty { color: #888; }
+    .theme-dark .tag { background: #1c1c1c; border-color: #3a3a3a; color: #ccc; }
+    .theme-dark .tag:hover { border-color: #6a6a6a; }
+    .theme-dark .tag.active { background: #fff; color: #111; border-color: #fff; }
+    .theme-dark .pager button { background: #1c1c1c; border-color: #3a3a3a; color: #ddd; }
+    .theme-dark .pager button:hover:not(:disabled) { border-color: #6a6a6a; }
+    .theme-dark .pager button.active { background: #fff; color: #111; border-color: #fff; }
+    .theme-dark .pager .ellipsis, .theme-dark .pager .info { color: #888; }
+    .theme-dark mark { background: rgba(255, 213, 79, 0.32); }
+    .theme-dark .error { color: #ff5566; }
+    .theme-dark .action-btn { color: #ddd; border-color: #3a3a3a; }
+    .theme-dark .action-btn:hover { border-color: #6a6a6a; background: rgba(255, 213, 79, 0.1); }
+    .theme-dark .theme-toggle { background: #1c1c1c; border-color: #3a3a3a; color: #ccc; }
+    .theme-dark .theme-toggle:hover { border-color: #6a6a6a; color: #fff; }
   </style>
 </head>
 <body>
+  <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Тема"></button>
   <h1>Список песен Kosmos Lada</h1>
   <p class="meta" id="meta">Загрузка…</p>
+  <div class="actions"><button type="button" class="action-btn" id="random-btn">→ случайная песня</button></div>
 
   <div class="search-wrap">
     <input
@@ -300,6 +375,78 @@
       $("search-clear").style.display = state.query ? "block" : "none";
       renderTags();
       applyFilter();
+    });
+
+    // ---- Переключение темы (system / light / dark) ----
+    const THEME_KEY = "songlist-theme";
+    const THEMES = ["system", "light", "dark"];
+    const THEME_ICONS = { system: "◐", light: "☀", dark: "☾" };
+    const THEME_LABELS = { system: "системная", light: "светлая", dark: "тёмная" };
+
+    function getTheme() {
+      const t = localStorage.getItem(THEME_KEY);
+      return THEMES.includes(t) ? t : "system";
+    }
+    function applyTheme() {
+      const t = getTheme();
+      const dark = (t === "dark") ||
+        (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.classList.toggle("theme-dark", dark);
+      const btn = $("theme-toggle");
+      btn.textContent = THEME_ICONS[t];
+      btn.title = "Тема: " + THEME_LABELS[t] + " — нажми, чтобы сменить";
+      btn.setAttribute("aria-label", "Тема: " + THEME_LABELS[t]);
+    }
+    $("theme-toggle").addEventListener("click", () => {
+      const next = THEMES[(THEMES.indexOf(getTheme()) + 1) % THEMES.length];
+      if (next === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, next);
+      applyTheme();
+    });
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (getTheme() === "system") applyTheme();
+    });
+    applyTheme();
+
+    function pickRandom() {
+      if (!state.filtered.length) return;
+      const idx = Math.floor(Math.random() * state.filtered.length);
+      const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+      const inPage = idx % PAGE_SIZE;
+      if (state.page !== targetPage) {
+        state.page = targetPage;
+        render();
+      }
+      requestAnimationFrame(() => {
+        const li = $("list").children[inPage];
+        if (!li) return;
+        li.classList.remove("flash");
+        void li.offsetWidth; // restart animation
+        li.classList.add("flash");
+        li.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+    $("random-btn").addEventListener("click", pickRandom);
+
+    // Хоткеи: "/" фокусит поиск, Esc очищает (или снимает фокус, если уже пусто).
+    document.addEventListener("keydown", e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || "";
+      const inField = tag === "INPUT" || tag === "TEXTAREA";
+      if (e.key === "/" && !inField) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      } else if (e.key === "Escape" && document.activeElement === searchInput) {
+        if (searchInput.value) {
+          searchInput.value = "";
+          state.query = "";
+          clearBtn.style.display = "none";
+          applyFilter();
+        } else {
+          searchInput.blur();
+        }
+      }
     });
 
     const searchInput = $("search");
