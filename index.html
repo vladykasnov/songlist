@@ -28,6 +28,8 @@
       -webkit-appearance: none;
     }
     .search:focus { outline: none; border-color: #888; }
+    .search::-webkit-search-cancel-button,
+    .search::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
     .search-clear {
       position: absolute;
       right: 8px; top: 50%;
@@ -77,6 +79,8 @@
     .pager button.active { background: #222; color: #fff; border-color: #222; }
     .pager .ellipsis, .pager .info { font-size: 12px; color: #777; padding: 0 4px; }
     .pager .info { width: 100%; text-align: center; margin-top: 8px; }
+
+    mark { background: rgba(255, 213, 79, 0.35); color: inherit; padding: 0 1px; border-radius: 2px; }
   </style>
 </head>
 <body>
@@ -118,6 +122,42 @@
       return String(s ?? "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
     }
 
+    // То же, но без схлопывания пробелов — длина строки сохраняется,
+    // чтобы индексы совпадали с оригиналом для подсветки.
+    function normalizeKeepLen(s) {
+      return String(s ?? "").toLowerCase().replace(/ё/g, "е");
+    }
+
+    function highlight(text, terms) {
+      if (!terms.length) return escapeHtml(text);
+      const norm = normalizeKeepLen(text);
+      const ranges = [];
+      for (const t of terms) {
+        if (!t) continue;
+        let i = 0;
+        while ((i = norm.indexOf(t, i)) !== -1) {
+          ranges.push([i, i + t.length]);
+          i += t.length;
+        }
+      }
+      if (!ranges.length) return escapeHtml(text);
+      ranges.sort((a, b) => a[0] - b[0]);
+      const merged = [ranges[0].slice()];
+      for (let i = 1; i < ranges.length; i++) {
+        const last = merged[merged.length - 1];
+        if (ranges[i][0] <= last[1]) last[1] = Math.max(last[1], ranges[i][1]);
+        else merged.push(ranges[i].slice());
+      }
+      let out = "", cursor = 0;
+      for (const [a, b] of merged) {
+        out += escapeHtml(text.slice(cursor, a));
+        out += "<mark>" + escapeHtml(text.slice(a, b)) + "</mark>";
+        cursor = b;
+      }
+      out += escapeHtml(text.slice(cursor));
+      return out;
+    }
+
     function applyFilter() {
       const q = normalize(state.query);
       if (!q) {
@@ -145,12 +185,13 @@
       if (total === 0) {
         list.innerHTML = '<li class="empty">Ничего не найдено</li>';
       } else {
+        const terms = normalize(state.query).split(" ").filter(Boolean);
         const html = [];
         for (let i = start; i < end; i++) {
           const s = state.filtered[i];
           html.push(
-            '<li><span class="title">' + escapeHtml(s.title) + '</span>' +
-            (s.artist ? '<span class="artist">' + escapeHtml(s.artist) + '</span>' : '') +
+            '<li><span class="title">' + highlight(s.title, terms) + '</span>' +
+            (s.artist ? '<span class="artist">' + highlight(s.artist, terms) + '</span>' : '') +
             '</li>'
           );
         }
