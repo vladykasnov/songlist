@@ -81,6 +81,16 @@
     .pager .info { width: 100%; text-align: center; margin-top: 8px; }
 
     mark { background: rgba(255, 213, 79, 0.35); color: inherit; padding: 0 1px; border-radius: 2px; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+    .tag {
+      border: 1px solid #ccc; background: #fff;
+      padding: 4px 10px; font-size: 12px; border-radius: 999px;
+      cursor: pointer; color: #444; line-height: 1.3;
+    }
+    .tag:hover { border-color: #888; }
+    .tag.active { background: #222; color: #fff; border-color: #222; }
+    .tag .count { opacity: 0.55; margin-left: 4px; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -100,6 +110,8 @@
     <button class="search-clear" id="search-clear" aria-label="Очистить">×</button>
   </div>
 
+  <div class="tags" id="tags"></div>
+
   <ul class="songs" id="list"></ul>
   <div class="pager" id="pager"></div>
 
@@ -107,8 +119,11 @@
   <script>
     const CSV_URL = "songs.csv";
     const PAGE_SIZE = 25;
+    // Теги, которые не показываем как чипы (одноразовые акции и т.п.).
+    // Сами песни с этими тегами остаются в списке — скрывается только фильтр.
+    const HIDDEN_TAGS = new Set(["СОВМЕСТНЫЙ СТРИМ"]);
 
-    const state = { all: [], filtered: [], page: 1, query: "" };
+    const state = { all: [], filtered: [], page: 1, query: "", tags: new Set(), tagList: [] };
     const $ = (id) => document.getElementById(id);
 
     function escapeHtml(s) {
@@ -160,17 +175,49 @@
 
     function applyFilter() {
       const q = normalize(state.query);
-      if (!q) {
-        state.filtered = state.all;
-      } else {
-        const terms = q.split(" ").filter(Boolean);
-        state.filtered = state.all.filter(s => {
-          const hay = s._search;
-          return terms.every(t => hay.includes(t));
-        });
-      }
+      const terms = q ? q.split(" ").filter(Boolean) : [];
+      const hasTags = state.tags.size > 0;
+
+      state.filtered = state.all.filter(s => {
+        if (terms.length && !terms.every(t => s._search.includes(t))) return false;
+        if (hasTags) {
+          for (const t of state.tags) if (!s.tags.includes(t)) return false;
+        }
+        return true;
+      });
       state.page = 1;
+      syncUrl();
       render();
+    }
+
+    function renderTags() {
+      const el = $("tags");
+      if (!state.tagList.length) { el.innerHTML = ""; return; }
+      el.innerHTML = state.tagList.map(([name, count]) => {
+        const active = state.tags.has(name) ? " active" : "";
+        const safe = escapeHtml(name);
+        return '<button type="button" class="tag' + active + '" data-tag="' + safe + '">' +
+               safe + '<span class="count">' + count + '</span></button>';
+      }).join("");
+    }
+
+    // ---- URL state (#q=...&tags=a,b) ----
+    function syncUrl() {
+      const params = new URLSearchParams();
+      if (state.query) params.set("q", state.query);
+      if (state.tags.size) params.set("tags", [...state.tags].join(","));
+      const target = params.toString() ? "#" + params.toString() : location.pathname + location.search;
+      if (location.hash !== (params.toString() ? "#" + params.toString() : "")) {
+        history.replaceState(null, "", target);
+      }
+    }
+
+    function readUrl() {
+      const raw = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+      const params = new URLSearchParams(raw);
+      state.query = params.get("q") || "";
+      const tagsParam = params.get("tags");
+      state.tags = new Set(tagsParam ? tagsParam.split(",").filter(Boolean) : []);
     }
 
     function render() {
@@ -236,6 +283,25 @@
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
+    $("tags").addEventListener("click", e => {
+      const btn = e.target.closest("button[data-tag]");
+      if (!btn) return;
+      const t = btn.dataset.tag;
+      if (state.tags.has(t)) state.tags.delete(t);
+      else state.tags.add(t);
+      renderTags();
+      applyFilter();
+    });
+
+    window.addEventListener("hashchange", () => {
+      readUrl();
+      const si = $("search");
+      si.value = state.query;
+      $("search-clear").style.display = state.query ? "block" : "none";
+      renderTags();
+      applyFilter();
+    });
+
     const searchInput = $("search");
     const clearBtn = $("search-clear");
     let searchTimer = null;
@@ -265,12 +331,28 @@
         .map(r => {
           const title = (r.title ?? "").trim();
           const artist = (r.artist ?? "").trim();
-          return { title, artist, _search: normalize(title + " " + artist) };
+          const tags = (r.attributes ?? "").split(",").map(t => t.trim()).filter(Boolean);
+          return { title, artist, tags, _search: normalize(title + " " + artist) };
         })
         .filter(r => r.title);
 
       state.all = rows;
-      state.filtered = rows;
+
+      const tagCounts = new Map();
+      for (const s of rows) for (const t of s.tags) {
+        if (HIDDEN_TAGS.has(t)) continue;
+        tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+      }
+      state.tagList = [...tagCounts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru"));
+
+      // Подхватим состояние из URL и приведём в соответствие UI.
+      readUrl();
+      // Отбросим теги, которых нет в данных, чтобы кривой URL не ломал фильтр.
+      const known = new Set(state.tagList.map(([n]) => n));
+      state.tags = new Set([...state.tags].filter(t => known.has(t)));
+      searchInput.value = state.query;
+      clearBtn.style.display = state.query ? "block" : "none";
 
       const lastMod = res.headers.get("last-modified");
       let metaText = "Всего: " + rows.length;
@@ -282,7 +364,8 @@
       }
       $("meta").textContent = metaText;
 
-      render();
+      renderTags();
+      applyFilter();
     }
 
     init().catch(err => {
