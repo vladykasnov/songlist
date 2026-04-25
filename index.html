@@ -358,7 +358,8 @@
         for (let i = start; i < end; i++) {
           const s = state.filtered[i];
           html.push(
-            '<li data-title="' + escapeHtml(s.title) + '">' +
+            '<li data-title="' + escapeHtml(s.title) + '"' +
+            (s.artist ? ' data-artist="' + escapeHtml(s.artist) + '"' : '') + '>' +
             '<span class="title">' + highlight(s.title, terms) + '</span>' +
             (s.artist ? '<span class="artist">' + highlight(s.artist, terms) + '</span>' : '') +
             '</li>'
@@ -429,9 +430,11 @@
       const li = e.target.closest("li[data-title]");
       if (!li) return;
       const title = li.dataset.title;
+      const artist = li.dataset.artist || "";
+      const text = artist ? title + " — " + artist : title;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(title)
-          .then(() => showToast("Скопировано: " + title))
+        navigator.clipboard.writeText(text)
+          .then(() => showToast("Скопировано: " + text))
           .catch(() => showToast("Не удалось скопировать"));
       } else {
         showToast("Буфер обмена недоступен");
