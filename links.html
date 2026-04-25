@@ -64,6 +64,36 @@
     ul.links .label { flex: 1; }
     ul.links .host { color: #888; font-size: 12px; }
 
+    /* Брендовые цвета — толстая полоска слева на каждой карточке. */
+    ul.links a { border-left-width: 4px; }
+    ul.links a[data-brand="twitch"]         { border-left-color: #9146ff; }
+    ul.links a[data-brand="youtube"]        { border-left-color: #ff0033; }
+    ul.links a[data-brand="donationalerts"] { border-left-color: #fbb040; }
+    ul.links a[data-brand="donatepay"]      { border-left-color: #4caf50; }
+    ul.links a[data-brand="telegram"]       { border-left-color: #229ed9; }
+    ul.links a[data-brand="max"]            { border-left-color: #4088ff; }
+    ul.links a[data-brand="instagram"]      { border-left-color: #e1306c; }
+    ul.links a[data-brand="boosty"]         { border-left-color: #f15f2c; }
+
+    .live-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600;
+      color: #d83838; text-transform: uppercase;
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+    }
+    .live-badge::before {
+      content: ""; width: 7px; height: 7px;
+      background: #d83838; border-radius: 50%;
+      animation: livePulse 1.6s ease-in-out infinite;
+    }
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .theme-dark .live-badge { color: #ff6868; }
+    .theme-dark .live-badge::before { background: #ff6868; }
+
     .theme-toggle {
       position: fixed; top: 12px; right: 12px;
       width: 32px; height: 32px;
@@ -87,6 +117,7 @@
 
     @media (prefers-reduced-motion: reduce) {
       .back, .theme-toggle, ul.links a { transition: none !important; }
+      .live-badge::before { animation: none !important; }
     }
   </style>
 </head>
@@ -99,29 +130,31 @@
 
   <h2>Трансляции</h2>
   <ul class="links">
-    <li><a href="https://www.twitch.tv/kosmos_lada" target="_blank" rel="noopener">
-      <span class="label">Twitch</span><span class="host">twitch.tv/kosmos_lada</span></a></li>
-    <li><a href="https://www.youtube.com/@kosmoslada" target="_blank" rel="noopener">
+    <li><a data-brand="twitch" href="https://www.twitch.tv/kosmos_lada" target="_blank" rel="noopener">
+      <span class="label">Twitch</span>
+      <span class="live-badge" id="twitch-live" hidden>● в эфире</span>
+      <span class="host">twitch.tv/kosmos_lada</span></a></li>
+    <li><a data-brand="youtube" href="https://www.youtube.com/@kosmoslada" target="_blank" rel="noopener">
       <span class="label">YouTube</span><span class="host">youtube.com/@kosmoslada</span></a></li>
   </ul>
 
   <h2>Донаты</h2>
   <ul class="links">
-    <li><a href="https://www.donationalerts.com/r/kosmos_lada" target="_blank" rel="noopener">
+    <li><a data-brand="donationalerts" href="https://www.donationalerts.com/r/kosmos_lada" target="_blank" rel="noopener">
       <span class="label">DonationAlerts</span><span class="host">donationalerts.com/r/kosmos_lada</span></a></li>
-    <li><a href="https://new.donatepay.ru/@kosmoslada" target="_blank" rel="noopener">
+    <li><a data-brand="donatepay" href="https://new.donatepay.ru/@kosmoslada" target="_blank" rel="noopener">
       <span class="label">DonatePay</span><span class="host">donatepay.ru/@kosmoslada</span></a></li>
   </ul>
 
   <h2>Соцсети и чаты</h2>
   <ul class="links">
-    <li><a href="https://t.me/kosmosChat02" target="_blank" rel="noopener">
+    <li><a data-brand="telegram" href="https://t.me/kosmosChat02" target="_blank" rel="noopener">
       <span class="label">Telegram</span><span class="host">t.me/kosmosChat02</span></a></li>
-    <li><a href="https://max.ru/join/543BaPeRNt6pO45pTLMlCyusieRRs4ROrjGEPzmrBKo" target="_blank" rel="noopener">
+    <li><a data-brand="max" href="https://max.ru/join/543BaPeRNt6pO45pTLMlCyusieRRs4ROrjGEPzmrBKo" target="_blank" rel="noopener">
       <span class="label">MAX</span><span class="host">max.ru</span></a></li>
-    <li><a href="https://www.instagram.com/lada.kosmos" target="_blank" rel="noopener">
+    <li><a data-brand="instagram" href="https://www.instagram.com/lada.kosmos" target="_blank" rel="noopener">
       <span class="label">Instagram</span><span class="host">instagram.com/lada.kosmos</span></a></li>
-    <li><a href="https://boosty.to/kosmos_lada" target="_blank" rel="noopener">
+    <li><a data-brand="boosty" href="https://boosty.to/kosmos_lada" target="_blank" rel="noopener">
       <span class="label">Boosty</span><span class="host">boosty.to/kosmos_lada</span></a></li>
   </ul>
 
@@ -156,6 +189,21 @@
       if (getTheme() === "system") applyTheme();
     });
     applyTheme();
+
+    // ---- Twitch live-индикатор через decapi.me ----
+    // Возвращает текст вида "kosmos_lada is offline" или uptime-строку.
+    fetch("https://decapi.me/twitch/uptime/kosmos_lada")
+      .then(r => r.ok ? r.text() : null)
+      .then(text => {
+        if (!text) return;
+        const t = text.trim();
+        if (!t || /offline/i.test(t)) return;
+        const badge = $("twitch-live");
+        if (!badge) return;
+        badge.hidden = false;
+        badge.title = "В эфире: " + t;
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>
