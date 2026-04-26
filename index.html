@@ -601,9 +601,13 @@
       const rows = (parsed.data || [])
         .filter(r => String(r.active ?? "").trim().toLowerCase() === "true")
         .map(r => {
-          const title = (r.title ?? "").trim();
+          // Скобки в начале — служебная пометка для исполнителя, зрителям не нужна.
+          const title = (r.title ?? "").replace(/^\s*\([^)]*\)\s*/, "").trim();
           const artist = (r.artist ?? "").trim();
-          const tags = (r.attributes ?? "").split(",").map(t => t.trim()).filter(Boolean);
+          // В CSV "Рок, метал" — одно значение, но его собственная запятая ломает split.
+          const tags = (r.attributes ?? "").replace(/Рок,\s*метал/gi, "Рок и метал")
+            .split(",").map(t => t.trim().replace(/Рок и метал/i, "Рок, метал"))
+            .filter(Boolean);
           return { title, artist, tags, _search: normalize(title + " " + artist) };
         })
         .filter(r => r.title);
