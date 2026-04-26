@@ -194,6 +194,13 @@
     .theme-dark .theme-toggle { background: #1c1c1c; border-color: #3a3a3a; color: #ccc; }
     .theme-dark .theme-toggle:hover { border-color: #6a6a6a; color: #fff; }
 
+    .tag-new { border-color: #ffd54f; color: #8a6a00; }
+    .tag-new:hover { border-color: #d4a900; }
+    .tag-new.active { background: #ffd54f; color: #222; border-color: #ffd54f; }
+    .theme-dark .tag-new { color: #ffd54f; border-color: rgba(255, 213, 79, 0.55); background: transparent; }
+    .theme-dark .tag-new:hover { border-color: #ffd54f; }
+    .theme-dark .tag-new.active { background: #ffd54f; color: #222; border-color: #ffd54f; }
+
     .tag-reset { color: #888; border-style: dashed; }
     .tag-reset:hover { color: #222; border-style: solid; border-color: #888; background: transparent; }
     .theme-dark .tag-reset { color: #888; border-color: #3a3a3a; background: transparent; }
@@ -262,6 +269,9 @@
     // Сами песни с этими тегами остаются в списке — скрывается только фильтр.
     const HIDDEN_TAGS = new Set(["СОВМЕСТНЫЙ СТРИМ"]);
 
+    // Псевдо-тег: при выборе сортирует список по убыванию id (свежие сверху).
+    const NEW_TAG = "Новые";
+
     const state = { all: [], filtered: [], page: 1, query: "", tags: new Set(), tagList: [] };
     const $ = (id) => document.getElementById(id);
 
@@ -315,15 +325,17 @@
     function applyFilter() {
       const q = normalize(state.query);
       const terms = q ? q.split(" ").filter(Boolean) : [];
-      const hasTags = state.tags.size > 0;
+      const sortByNew = state.tags.has(NEW_TAG);
 
       state.filtered = state.all.filter(s => {
         if (terms.length && !terms.every(t => s._search.includes(t))) return false;
-        if (hasTags) {
-          for (const t of state.tags) if (!s.tags.includes(t)) return false;
+        for (const t of state.tags) {
+          if (t === NEW_TAG) continue; // это псевдо-тег — он сортирует, а не фильтрует.
+          if (!s.tags.includes(t)) return false;
         }
         return true;
       });
+      if (sortByNew) state.filtered.sort((a, b) => b.id - a.id);
       state.page = 1;
       syncUrl();
       render();
@@ -331,12 +343,14 @@
 
     function renderTags() {
       const el = $("tags");
-      const chips = state.tagList.map(([name, count]) => {
+      const newActive = state.tags.has(NEW_TAG) ? " active" : "";
+      const chips = ['<button type="button" class="tag tag-new' + newActive + '" data-tag="' + NEW_TAG + '">' + NEW_TAG + '</button>'];
+      for (const [name, count] of state.tagList) {
         const active = state.tags.has(name) ? " active" : "";
         const safe = escapeHtml(name);
-        return '<button type="button" class="tag' + active + '" data-tag="' + safe + '">' +
-               safe + '<span class="count">' + count + '</span></button>';
-      });
+        chips.push('<button type="button" class="tag' + active + '" data-tag="' + safe + '">' +
+                   safe + '<span class="count">' + count + '</span></button>');
+      }
       if (state.query || state.tags.size) {
         chips.push('<button type="button" class="tag tag-reset" id="tag-reset">× сбросить</button>');
       }
@@ -601,6 +615,7 @@
       const rows = (parsed.data || [])
         .filter(r => String(r.active ?? "").trim().toLowerCase() === "true")
         .map(r => {
+          const id = Number(r.id) || 0;
           // Скобки в начале — служебная пометка для исполнителя, зрителям не нужна.
           const title = (r.title ?? "").replace(/^\s*\([^)]*\)\s*/, "").trim();
           const artist = (r.artist ?? "").trim();
@@ -608,7 +623,7 @@
           const tags = (r.attributes ?? "").replace(/Рок,\s*метал/gi, "Рок и метал")
             .split(",").map(t => t.trim().replace(/Рок и метал/i, "Рок, метал"))
             .filter(Boolean);
-          return { title, artist, tags, _search: normalize(title + " " + artist) };
+          return { id, title, artist, tags, _search: normalize(title + " " + artist) };
         })
         .filter(r => r.title);
 
@@ -625,7 +640,7 @@
       // Подхватим состояние из URL и приведём в соответствие UI.
       readUrl();
       // Отбросим теги, которых нет в данных, чтобы кривой URL не ломал фильтр.
-      const known = new Set(state.tagList.map(([n]) => n));
+      const known = new Set([NEW_TAG, ...state.tagList.map(([n]) => n)]);
       state.tags = new Set([...state.tags].filter(t => known.has(t)));
       searchInput.value = state.query;
       clearBtn.style.display = state.query ? "block" : "none";
