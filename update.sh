@@ -33,7 +33,9 @@ if [[ -f "$DST" ]]; then
     <(awk -F',' 'NR>1{print $1}' "$DST" | sort) \
     <(awk -F',' 'NR>1{print $1}' "$SRC" | sort))
   if [[ -n "$NEW_IDS" ]]; then
-    printf '[%s]\n' "$(echo "$NEW_IDS" | paste -sd, -)" > "$NEW_JSON"
+    # Дата нужна странице, чтобы убрать звёздочки спустя несколько дней.
+    printf '{"date":"%s","ids":[%s]}\n' \
+      "$(date +%F)" "$(echo "$NEW_IDS" | paste -sd, -)" > "$NEW_JSON"
     echo "Новые песни помечены: $(echo "$NEW_IDS" | tr '\n' ' ')"
   fi
 fi

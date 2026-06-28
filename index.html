@@ -276,6 +276,8 @@
     // id песен из последней пачки обновления — помечаются звёздочкой ★.
     // Файл создаётся скриптом update.sh при каждом добавлении песен.
     const NEW_IDS_URL = "new-songs.json";
+    // Через сколько дней после добавления звёздочка перестаёт показываться.
+    const NEW_DAYS = 10;
 
     const state = { all: [], filtered: [], page: 1, query: "", tags: new Set(), tagList: [] };
     const $ = (id) => document.getElementById(id);
@@ -613,12 +615,20 @@
     });
 
     // Список id из последней пачки. Файла может не быть — тогда просто нет звёздочек.
+    // Если пачка старше NEW_DAYS дней — звёздочки больше не показываем.
     async function fetchNewIds() {
       try {
         const r = await fetch(NEW_IDS_URL, { cache: "no-store" });
         if (!r.ok) return new Set();
         const data = await r.json();
-        return new Set((Array.isArray(data) ? data : []).map(Number).filter(Boolean));
+        // Поддерживаем оба формата: старый (просто массив id) и новый ({date, ids}).
+        const ids = Array.isArray(data) ? data : (data && data.ids) || [];
+        const date = data && data.date ? new Date(data.date) : null;
+        if (date && !isNaN(date)) {
+          const ageDays = (Date.now() - date.getTime()) / 86400000;
+          if (ageDays > NEW_DAYS) return new Set();
+        }
+        return new Set(ids.map(Number).filter(Boolean));
       } catch (e) {
         return new Set();
       }
