@@ -25,6 +25,19 @@ if [[ -f "$DST" ]]; then
 fi
 NEW_ACTIVE=$(awk -F',' 'NR>1 && tolower($4)=="true"' "$SRC" | wc -l | tr -d ' ')
 
+# id песен, которых не было в старом songs.csv, — это «последняя пачка».
+# Пишем их в new-songs.json, чтобы страница пометила их звёздочкой.
+NEW_JSON="new-songs.json"
+if [[ -f "$DST" ]]; then
+  NEW_IDS=$(comm -13 \
+    <(awk -F',' 'NR>1{print $1}' "$DST" | sort) \
+    <(awk -F',' 'NR>1{print $1}' "$SRC" | sort))
+  if [[ -n "$NEW_IDS" ]]; then
+    printf '[%s]\n' "$(echo "$NEW_IDS" | paste -sd, -)" > "$NEW_JSON"
+    echo "Новые песни помечены: $(echo "$NEW_IDS" | tr '\n' ' ')"
+  fi
+fi
+
 cp "$SRC" "$DST"
 
 DIFF=$((NEW_ACTIVE - OLD_ACTIVE))
@@ -42,7 +55,7 @@ fi
 read -r -p "Закоммитить и запушить? [y/N] " ans
 case "$ans" in
   [yYдД]*)
-    git add "$DST"
+    git add "$DST" "$NEW_JSON"
     git commit -m "Update songs.csv ($NEW_ACTIVE active, ${SIGN}${DIFF})"
     git push
     echo "Готово. Pages обновится через ~30–60 секунд."

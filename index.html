@@ -79,6 +79,8 @@
     ul.songs li:hover { background-color: rgba(0, 0, 0, 0.025); }
     .theme-dark ul.songs li:hover { background-color: rgba(255, 255, 255, 0.04); }
     .title { font-size: 15px; }
+    .new-badge { color: #d4a900; font-size: 12px; vertical-align: 1px; }
+    .theme-dark .new-badge { color: #ffd54f; }
     .artist { font-size: 12px; color: #777; margin-top: 2px; display: block; }
 
     @media (min-width: 600px) {
@@ -271,6 +273,9 @@
 
     // Псевдо-тег: при выборе сортирует список по убыванию id (свежие сверху).
     const NEW_TAG = "Новые";
+    // id песен из последней пачки обновления — помечаются звёздочкой ★.
+    // Файл создаётся скриптом update.sh при каждом добавлении песен.
+    const NEW_IDS_URL = "new-songs.json";
 
     const state = { all: [], filtered: [], page: 1, query: "", tags: new Set(), tagList: [] };
     const $ = (id) => document.getElementById(id);
@@ -405,7 +410,9 @@
           html.push(
             '<li data-title="' + escapeHtml(s.title) + '"' +
             (s.artist ? ' data-artist="' + escapeHtml(s.artist) + '"' : '') + '>' +
-            '<span class="title">' + highlight(s.title, terms) + '</span>' +
+            '<span class="title">' +
+              (s.isNew ? '<span class="new-badge" title="Недавно добавлена">★</span> ' : '') +
+              highlight(s.title, terms) + '</span>' +
             (s.artist ? '<span class="artist">' + highlight(s.artist, terms) + '</span>' : '') +
             '</li>'
           );
@@ -605,6 +612,18 @@
       searchInput.focus();
     });
 
+    // Список id из последней пачки. Файла может не быть — тогда просто нет звёздочек.
+    async function fetchNewIds() {
+      try {
+        const r = await fetch(NEW_IDS_URL, { cache: "no-store" });
+        if (!r.ok) return new Set();
+        const data = await r.json();
+        return new Set((Array.isArray(data) ? data : []).map(Number).filter(Boolean));
+      } catch (e) {
+        return new Set();
+      }
+    }
+
     async function init() {
       const res = await fetch(CSV_URL, { cache: "no-store" });
       if (!res.ok) throw new Error("Не удалось загрузить songs.csv (HTTP " + res.status + ")");
@@ -628,6 +647,10 @@
         .filter(r => r.title);
 
       state.all = rows;
+
+      // Помечаем песни из последней пачки обновления (id берём из new-songs.json).
+      const newIds = await fetchNewIds();
+      for (const r of rows) r.isNew = newIds.has(r.id);
 
       const tagCounts = new Map();
       for (const s of rows) for (const t of s.tags) {
