@@ -47,7 +47,7 @@
     .move-banner { padding: 16px; margin: 0 0 22px; border: 1px solid #bfd6cc; border-radius: 12px; background: #edf8f3; }
     .move-banner strong { display: block; font-size: 17px; margin-bottom: 5px; }
     .move-banner p { margin: 0 0 12px; }
-    .move-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .move-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
     .move-actions a, .move-actions button { display: inline-block; padding: 8px 12px; border: 1px solid #718b7e; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; }
     .move-actions a { background: #176447; border-color: #176447; color: #fff; }
     .theme-dark .move-banner { background: #19342a; border-color: #375d4d; }
@@ -677,17 +677,30 @@
     }
 
     const newSite = "https://sl.ngoro.dedyn.io/t/kosmos_lada";
-    let stayOnBackup = new URLSearchParams(location.search).get("backup") === "1";
+    const returnedByHistory = performance.getEntriesByType("navigation").some(entry => entry.type === "back_forward");
+    let stayOnBackup = new URLSearchParams(location.search).get("backup") === "1" || returnedByHistory;
     const moveStatus = $("move-status");
-    $("stay-on-backup").addEventListener("click", () => {
+    function showBackupStatus() {
+      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
+    }
+    function keepBackupPage() {
       stayOnBackup = true;
       const url = new URL(location.href);
       url.searchParams.set("backup", "1");
       history.replaceState(null, "", url);
-      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
+      showBackupStatus();
+    }
+    // При возврате кнопкой «Назад» браузер может восстановить страницу из
+    // памяти, не запуская скрипт заново. Не отправляем зрителя по кругу.
+    addEventListener("pageshow", event => {
+      if (!event.persisted) return;
+      keepBackupPage();
     });
-    if (stayOnBackup) {
-      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
+    $("stay-on-backup").addEventListener("click", keepBackupPage);
+    if (returnedByHistory) {
+      keepBackupPage();
+    } else if (stayOnBackup) {
+      showBackupStatus();
     } else {
       // Картинка проверяет доступность другого домена без CORS и без сторонних
       // библиотек: при ошибке сети остаёмся на локальном снимке каталога.
@@ -699,8 +712,8 @@
         probeFinished = true;
         clearTimeout(timeout);
         if (stayOnBackup) return;
-        moveStatus.textContent = "Новая витрина работает. Переходим через пару секунд…";
-        setTimeout(() => { if (!stayOnBackup) location.replace(newSite); }, 2000);
+        moveStatus.textContent = "Переходим через 3 секунды…";
+        setTimeout(() => { if (!stayOnBackup) location.assign(newSite); }, 3000);
       };
       probe.onerror = () => {
         if (probeFinished) return;
