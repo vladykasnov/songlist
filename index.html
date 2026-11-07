@@ -239,10 +239,10 @@
   <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Тема"></button>
   <section class="move-banner" aria-labelledby="move-title">
     <strong id="move-title">Сонглист переехал</strong>
-    <p id="move-status" role="status">Проверяем новую витрину…</p>
+    <p>Актуальный каталог и очередь — на новой витрине. Ниже остаётся резервный список без возможности заказа.</p>
     <div class="move-actions">
       <a href="https://sl.ngoro.dedyn.io/t/kosmos_lada">Открыть новый сонглист</a>
-      <button type="button" id="stay-on-backup">Остаться на резервном списке</button>
+      <button type="button" id="stay-on-backup">Смотреть резервный каталог</button>
     </div>
   </section>
   <h1>Список песен Kosmos Lada</h1>
@@ -676,53 +676,12 @@
       applyFilter();
     }
 
-    const newSite = "https://sl.ngoro.dedyn.io/t/kosmos_lada";
-    const returnedByHistory = performance.getEntriesByType("navigation").some(entry => entry.type === "back_forward");
-    let stayOnBackup = new URLSearchParams(location.search).get("backup") === "1" || returnedByHistory;
-    const moveStatus = $("move-status");
-    function showBackupStatus() {
-      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
-    }
-    function keepBackupPage() {
-      stayOnBackup = true;
+    $("stay-on-backup").addEventListener("click", () => {
       const url = new URL(location.href);
       url.searchParams.set("backup", "1");
       history.replaceState(null, "", url);
-      showBackupStatus();
-    }
-    // При возврате кнопкой «Назад» браузер может восстановить страницу из
-    // памяти, не запуская скрипт заново. Не отправляем зрителя по кругу.
-    addEventListener("pageshow", event => {
-      if (!event.persisted) return;
-      keepBackupPage();
+      searchInput.focus();
     });
-    $("stay-on-backup").addEventListener("click", keepBackupPage);
-    if (returnedByHistory) {
-      keepBackupPage();
-    } else if (stayOnBackup) {
-      showBackupStatus();
-    } else {
-      // Картинка проверяет доступность другого домена без CORS и без сторонних
-      // библиотек: при ошибке сети остаёмся на локальном снимке каталога.
-      const probe = new Image();
-      let probeFinished = false;
-      const timeout = setTimeout(() => probe.onerror(), 4000);
-      probe.onload = () => {
-        if (probeFinished) return;
-        probeFinished = true;
-        clearTimeout(timeout);
-        if (stayOnBackup) return;
-        moveStatus.textContent = "Переходим через 3 секунды…";
-        setTimeout(() => { if (!stayOnBackup) location.assign(newSite); }, 3000);
-      };
-      probe.onerror = () => {
-        if (probeFinished) return;
-        probeFinished = true;
-        clearTimeout(timeout);
-        if (!stayOnBackup) moveStatus.textContent = "Новая витрина сейчас недоступна — ниже сохранён резервный каталог. Заказы здесь недоступны.";
-      };
-      probe.src = "https://sl.ngoro.dedyn.io/icon.svg?check=" + Date.now();
-    }
 
     init().catch(err => {
       console.error(err);
