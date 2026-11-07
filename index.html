@@ -48,8 +48,7 @@
     .move-banner strong { display: block; font-size: 17px; margin-bottom: 5px; }
     .move-banner p { margin: 0 0 12px; }
     .move-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-    .move-actions a, .move-actions button { display: inline-block; padding: 8px 12px; border: 1px solid #718b7e; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; }
-    .move-actions a { background: #176447; border-color: #176447; color: #fff; }
+    .move-actions a { display: inline-block; padding: 8px 12px; border: 1px solid #176447; border-radius: 7px; background: #176447; color: #fff; font: inherit; font-size: 14px; text-decoration: none; }
     .theme-dark .move-banner { background: #19342a; border-color: #375d4d; }
     .theme-dark .move-actions a { background: #48a77b; border-color: #48a77b; color: #11231b; }
 
@@ -239,10 +238,9 @@
   <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Тема"></button>
   <section class="move-banner" aria-labelledby="move-title">
     <strong id="move-title">Сонглист переехал</strong>
-    <p>Актуальный каталог и очередь — на новой витрине. Ниже остаётся резервный список без возможности заказа.</p>
+    <p>Актуальный список песен и очередь заказов теперь в новом сонглисте. Здесь — резервный каталог без возможности заказа.</p>
     <div class="move-actions">
       <a href="https://sl.ngoro.dedyn.io/t/kosmos_lada">Открыть новый сонглист</a>
-      <button type="button" id="stay-on-backup">Смотреть резервный каталог</button>
     </div>
   </section>
   <h1>Список песен Kosmos Lada</h1>
@@ -675,13 +673,6 @@
       renderTags();
       applyFilter();
     }
-
-    $("stay-on-backup").addEventListener("click", () => {
-      const url = new URL(location.href);
-      url.searchParams.set("backup", "1");
-      history.replaceState(null, "", url);
-      searchInput.focus();
-    });
 
     init().catch(err => {
       console.error(err);
