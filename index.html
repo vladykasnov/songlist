@@ -44,6 +44,14 @@
     }
     h1 { font-size: 20px; margin: 0 0 4px; text-align: center; font-weight: 600; }
     .meta { font-size: 12px; color: #777; text-align: center; margin: 0 0 18px; }
+    .move-banner { padding: 16px; margin: 0 0 22px; border: 1px solid #bfd6cc; border-radius: 12px; background: #edf8f3; }
+    .move-banner strong { display: block; font-size: 17px; margin-bottom: 5px; }
+    .move-banner p { margin: 0 0 12px; }
+    .move-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .move-actions a, .move-actions button { display: inline-block; padding: 8px 12px; border: 1px solid #718b7e; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; }
+    .move-actions a { background: #176447; border-color: #176447; color: #fff; }
+    .theme-dark .move-banner { background: #19342a; border-color: #375d4d; }
+    .theme-dark .move-actions a { background: #48a77b; border-color: #48a77b; color: #11231b; }
 
     .search-wrap { position: relative; margin-bottom: 12px; }
     .search {
@@ -229,6 +237,14 @@
 </head>
 <body>
   <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Тема"></button>
+  <section class="move-banner" aria-labelledby="move-title">
+    <strong id="move-title">Сонглист переехал</strong>
+    <p id="move-status" role="status">Проверяем новую витрину…</p>
+    <div class="move-actions">
+      <a href="https://sl.ngoro.dedyn.io/t/kosmos_lada">Открыть новый сонглист</a>
+      <button type="button" id="stay-on-backup">Остаться на резервном списке</button>
+    </div>
+  </section>
   <h1>Список песен Kosmos Lada</h1>
   <p class="meta" id="meta">Загрузка…</p>
   <div class="actions">
@@ -263,9 +279,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script>
-    const CSV_URL = "songs.csv";
+    const SNAPSHOT_URL = "catalog-snapshot.json";
     const PAGE_SIZE = 25;
     // Теги, которые не показываем как чипы (одноразовые акции и т.п.).
     // Сами песни с этими тегами остаются в списке — скрывается только фильтр.
@@ -273,9 +288,6 @@
 
     // Псевдо-тег: при выборе сортирует список по убыванию id (свежие сверху).
     const NEW_TAG = "Новые";
-    // id песен из последней пачки обновления — помечаются звёздочкой ★.
-    // Файл создаётся скриптом update.sh при каждом добавлении песен.
-    const NEW_IDS_URL = "new-songs.json";
     // Через сколько дней после добавления звёздочка перестаёт показываться.
     const NEW_DAYS = 10;
 
@@ -614,53 +626,26 @@
       searchInput.focus();
     });
 
-    // Список id из последней пачки. Файла может не быть — тогда просто нет звёздочек.
-    // Если пачка старше NEW_DAYS дней — звёздочки больше не показываем.
-    async function fetchNewIds() {
-      try {
-        const r = await fetch(NEW_IDS_URL, { cache: "no-store" });
-        if (!r.ok) return new Set();
-        const data = await r.json();
-        // Поддерживаем оба формата: старый (просто массив id) и новый ({date, ids}).
-        const ids = Array.isArray(data) ? data : (data && data.ids) || [];
-        const date = data && data.date ? new Date(data.date) : null;
-        if (date && !isNaN(date)) {
-          const ageDays = (Date.now() - date.getTime()) / 86400000;
-          if (ageDays > NEW_DAYS) return new Set();
-        }
-        return new Set(ids.map(Number).filter(Boolean));
-      } catch (e) {
-        return new Set();
-      }
-    }
-
     async function init() {
-      const res = await fetch(CSV_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error("Не удалось загрузить songs.csv (HTTP " + res.status + ")");
-      const csvText = await res.text();
-      const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-      if (parsed.errors && parsed.errors.length) console.warn("CSV parse warnings:", parsed.errors);
+      const res = await fetch(SNAPSHOT_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Не удалось загрузить резервный список (HTTP " + res.status + ")");
+      const snapshot = await res.json();
+      if (!snapshot || !Array.isArray(snapshot.songs)) throw new Error("Резервный список повреждён");
 
-      const rows = (parsed.data || [])
-        .filter(r => String(r.active ?? "").trim().toLowerCase() === "true")
-        .map(r => {
-          const id = Number(r.id) || 0;
-          // Скобки в начале — служебная пометка для исполнителя, зрителям не нужна.
-          const title = (r.title ?? "").replace(/^\s*\([^)]*\)\s*/, "").trim();
-          const artist = (r.artist ?? "").trim();
-          // В CSV "Рок, метал" — одно значение, но его собственная запятая ломает split.
-          const tags = (r.attributes ?? "").replace(/Рок,\s*метал/gi, "Рок и метал")
-            .split(",").map(t => t.trim().replace(/Рок и метал/i, "Рок, метал"))
-            .filter(Boolean);
-          return { id, title, artist, tags, _search: normalize(title + " " + artist) };
-        })
-        .filter(r => r.title);
+      const rows = snapshot.songs.map(r => {
+        const title = String(r.title ?? "").trim();
+        const artist = String(r.artist ?? "").trim();
+        const createdAt = new Date(r.createdAt);
+        return {
+          id: Number(r.id) || 0,
+          title, artist,
+          tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+          isNew: !isNaN(createdAt) && Date.now() - createdAt.getTime() < NEW_DAYS * 86400000,
+          _search: normalize(title + " " + artist)
+        };
+      }).filter(r => r.id && r.title);
 
       state.all = rows;
-
-      // Помечаем песни из последней пачки обновления (id берём из new-songs.json).
-      const newIds = await fetchNewIds();
-      for (const r of rows) r.isNew = newIds.has(r.id);
 
       const tagCounts = new Map();
       for (const s of rows) for (const t of s.tags) {
@@ -678,18 +663,52 @@
       searchInput.value = state.query;
       clearBtn.style.display = state.query ? "block" : "none";
 
-      const lastMod = res.headers.get("last-modified");
       let metaText = "Всего: " + rows.length;
-      if (lastMod) {
-        const d = new Date(lastMod);
+      if (snapshot.snapshotAt) {
+        const d = new Date(snapshot.snapshotAt);
         if (!isNaN(d)) {
-          metaText += " · обновлено " + d.toLocaleDateString("ru-RU");
+          metaText += " · резервная копия от " + d.toLocaleDateString("ru-RU");
         }
       }
       $("meta").textContent = metaText;
 
       renderTags();
       applyFilter();
+    }
+
+    const newSite = "https://sl.ngoro.dedyn.io/t/kosmos_lada";
+    let stayOnBackup = new URLSearchParams(location.search).get("backup") === "1";
+    const moveStatus = $("move-status");
+    $("stay-on-backup").addEventListener("click", () => {
+      stayOnBackup = true;
+      const url = new URL(location.href);
+      url.searchParams.set("backup", "1");
+      history.replaceState(null, "", url);
+      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
+    });
+    if (stayOnBackup) {
+      moveStatus.textContent = "Показан резервный каталог. Заказы песен здесь недоступны.";
+    } else {
+      // Картинка проверяет доступность другого домена без CORS и без сторонних
+      // библиотек: при ошибке сети остаёмся на локальном снимке каталога.
+      const probe = new Image();
+      let probeFinished = false;
+      const timeout = setTimeout(() => probe.onerror(), 4000);
+      probe.onload = () => {
+        if (probeFinished) return;
+        probeFinished = true;
+        clearTimeout(timeout);
+        if (stayOnBackup) return;
+        moveStatus.textContent = "Новая витрина работает. Переходим через пару секунд…";
+        setTimeout(() => { if (!stayOnBackup) location.replace(newSite); }, 2000);
+      };
+      probe.onerror = () => {
+        if (probeFinished) return;
+        probeFinished = true;
+        clearTimeout(timeout);
+        if (!stayOnBackup) moveStatus.textContent = "Новая витрина сейчас недоступна — ниже сохранён резервный каталог. Заказы здесь недоступны.";
+      };
+      probe.src = "https://sl.ngoro.dedyn.io/icon.svg?check=" + Date.now();
     }
 
     init().catch(err => {

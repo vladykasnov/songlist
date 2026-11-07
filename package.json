@@ -1,0 +1,8 @@
+{
+  "name": "songlist-static-backup",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "devalue": "5.9.1"
+  }
+}
